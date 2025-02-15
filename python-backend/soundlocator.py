@@ -3,32 +3,34 @@ import numpy as np
 import threading
 import time
 
-# Global list that will store the latest amplitude for each microphone.
-# In this example, we assume exactly 4 microphones.
-shared_amplitudes = [0.0, 0.0, 0.0, 0.0]
-
-# We'll use an Event to signal when we want all threads to stop.
+# We use an Event to signal when we want all threads to stop.
 stop_event = threading.Event()
 
-def audio_callback(indata, frames, time_info, status, mic_index):
-    """Called whenever the audio buffer is filled.
-    Updates the shared_amplitudes with the latest RMS amplitude for this mic."""
+def softmax(x):
+    """Compute softmax values for an array x."""
+    exp_x = np.exp(x - np.max(x))  # Stability improvement by subtracting max
+    return exp_x / np.sum(exp_x)
+
+def audio_callback(indata, frames, time_info, status, mic_index, shared_amplitudes):
+    """
+    Callback function called by the InputStream whenever audio is available.
+    It updates the shared_amplitudes list with the RMS amplitude for this mic_index.
+    """
     if status:
         print(f"Microphone {mic_index} callback status: {status}", flush=True)
     # Compute RMS amplitude:
     amplitude = np.sqrt(np.mean(indata**2))
     shared_amplitudes[mic_index] = amplitude
 
-def record_microphone(mic_index, device_index, samplerate=44100):
+def record_microphone(mic_index, device_index, shared_amplitudes, samplerate=44100):
     """
     Opens an InputStream for the specified device_index, using a callback
     that updates the global shared_amplitudes for mic_index.
     """
     def callback_wrapper(indata, frames, time_info, status):
-        audio_callback(indata, frames, time_info, status, mic_index)
+        audio_callback(indata, frames, time_info, status, mic_index, shared_amplitudes)
 
     # Open the input stream with 1 channel (mono) from the given device
-    # Adjust channels, samplerate, blocksize, etc. as needed.
     with sd.InputStream(device=device_index,
                         channels=1,
                         samplerate=samplerate,
@@ -42,34 +44,51 @@ def main():
     print("Available audio devices:")
     print(sd.query_devices())
 
-    # Ask the user for 4 device indices (or you can hardcode them).
+    # Ask the user for device indices (comma-separated)
     devices_str = input(
-        "Enter the 4 device indices (comma-separated) for the microphones you want to use: "
+        "Enter device indices (comma-separated) for the microphones you want to use: "
     )
     device_indices = [int(x.strip()) for x in devices_str.split(",")]
+    n_mics = len(device_indices)
     
-    if len(device_indices) != 4:
-        print("Please provide exactly 4 device indices.")
+    if n_mics < 1:
+        print("Please provide at least one device index.")
         return
+
+    # Initialize a shared list of amplitudes for each mic
+    shared_amplitudes = [0.0] * n_mics
 
     # Create and start one thread per microphone
     threads = []
-    for i in range(4):
-        t = threading.Thread(target=record_microphone, args=(i, device_indices[i]))
+    for i in range(n_mics):
+        t = threading.Thread(
+            target=record_microphone,
+            args=(i, device_indices[i], shared_amplitudes)
+        )
         t.start()
         threads.append(t)
 
-    print("Recording from four devices... Press Ctrl+C to stop.")
+    print(f"Recording from {n_mics} devices... Press Ctrl+C to stop.")
 
     try:
         while True:
-            # Determine which microphone is the loudest at this moment
-            loudest_mic = np.argmax(shared_amplitudes)
-            # (You could also consider thresholds or smoothing if you prefer.)
-            print(f"Loudest microphone index: {loudest_mic} (amplitudes={shared_amplitudes})")
-            time.sleep(0.2)  # Adjust how frequently you want to print
+            # Compute softmax of amplitudes
+            if np.sum(shared_amplitudes) > 0:  # Avoid division by zero
+                softmax_values = softmax(shared_amplitudes)
+                loudest_mic = np.argmax(softmax_values)
+            else:
+                softmax_values = [0.0] * n_mics  # If all zero, no confidence in any mic
+                loudest_mic = None
+
+            print(
+                f"Loudest microphone index: {loudest_mic} "
+                f"(softmax={softmax_values}, amplitudes={shared_amplitudes})"
+            )
+            time.sleep(0.2)  # Adjust frequency of printing as desired
+
     except KeyboardInterrupt:
         print("\nStopping...")
+
     finally:
         # Signal threads to stop and wait for them to finish
         stop_event.set()
