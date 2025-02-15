@@ -66,16 +66,24 @@ def main():
 
     if 'linux' in platform:
         mic_name = args.default_microphone
+        available_mics = sr.Microphone.list_microphone_names()
+        
         if not mic_name or mic_name == 'list':
-            print("Available microphone devices are: ")
-            for index, name in enumerate(sr.Microphone.list_microphone_names()):
-                print(f"Microphone with name \"{name}\" found")
-            return
-        else:
-            for index, name in enumerate(sr.Microphone.list_microphone_names()):
-                if mic_name in name:
-                    source = sr.Microphone(sample_rate=16000, device_index=index)
-                    break
+            print("Available microphone devices:")
+            for index, name in enumerate(available_mics):
+                print(f"[{index}] {name}")
+            exit(1)  # Exit to prevent unassigned variable
+
+        source = None
+        for index, name in enumerate(available_mics):
+            if mic_name in name:
+                source = sr.Microphone(sample_rate=16000, device_index=index)
+                break
+
+        if source is None:
+            print(f"Microphone '{mic_name}' not found. Please check `list`.")
+            exit(1)  # Exit to prevent error
+
     else:
         source = sr.Microphone(sample_rate=16000)
 
