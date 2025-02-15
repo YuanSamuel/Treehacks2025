@@ -122,7 +122,7 @@ def main():
                 if phrase_complete:
                     transcription.append(text)
                 else:
-                    transcription[-1] = text
+                    transcription[-1] += text
 
                 # Clear the console to reprint the updated transcription.
                 os.system('cls' if os.name=='nt' else 'clear')
