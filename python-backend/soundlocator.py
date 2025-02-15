@@ -130,12 +130,6 @@ def update_plot_top_two(ax, softmax_values, n_mics):
     plt.pause(0.01)
 
 def main():
-    # Set up argument parser
-    parser = argparse.ArgumentParser(description="Monitor microphone amplitudes with an optional threshold.")
-    parser.add_argument("-t", "--threshold", type=float, default=None, help="Amplitude threshold for printing (optional).")
-    args = parser.parse_args()
-    threshold = args.threshold  # Get the threshold value (or None if not provided)
-
     # Print available devices to help user pick indices
     print("Available audio devices:")
     print(sd.query_devices())
@@ -156,7 +150,7 @@ def main():
     momentum_amplitudes = [0.0] * n_mics
     
     # Momentum factor: 0.9 means 90% previous value, 10% new
-    MOMENTUM_ALPHA = 0.9  
+    MOMENTUM_ALPHA = 0.8
 
     # Launch a thread per microphone
     threads = []
@@ -169,9 +163,7 @@ def main():
         threads.append(t)
 
     print(f"\nRecording from {n_mics} devices... Press Ctrl+C to stop.")
-    if threshold:
-        print(f"Only printing when amplitude exceeds {threshold}.")
-
+    
     # Set up the real-time plot
     fig, ax = setup_plot()
 
@@ -188,7 +180,7 @@ def main():
             # Avoid division by zero
             if np.sum(momentum_amplitudes) > 0:
                 # For sharper distinctions, we can pass a small temperature
-                softmax_values = softmax(momentum_amplitudes, temperature=0.1)
+                softmax_values = softmax(momentum_amplitudes, temperature=0.05)
             else:
                 softmax_values = [0.0] * n_mics
 
