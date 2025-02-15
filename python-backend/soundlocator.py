@@ -6,9 +6,10 @@ import matplotlib.pyplot as plt
 
 stop_event = threading.Event()
 
-def softmax(x):
-    """Compute softmax values for an array x."""
-    exp_x = np.exp(x - np.max(x))  # Stability improvement by subtracting max
+def softmax(x, temperature=1.0):
+    """Compute softmax values for an array x, with optional temperature control."""
+    scaled_x = np.array(x) / temperature
+    exp_x = np.exp(scaled_x - np.max(scaled_x))
     return exp_x / np.sum(exp_x)
 
 def audio_callback(indata, frames, time_info, status, mic_index, shared_amplitudes):
@@ -64,7 +65,7 @@ def get_directions(n_mics):
             3: ( 1, -1)
         }
     else:
-        # Fallback (no defined layout). 
+        # Fallback (no defined layout).
         return {i: (0,0) for i in range(n_mics)}
 
 def setup_plot():
@@ -144,7 +145,14 @@ def main():
         print("Please provide at least one device index.")
         return
 
+    # This holds the latest "raw" amplitudes measured in the callback
     shared_amplitudes = [0.0] * n_mics
+    
+    # This will hold the "smoothed" or "momentum" amplitudes
+    momentum_amplitudes = [0.0] * n_mics
+    
+    # Momentum factor: 0.9 means 90% previous value, 10% new
+    MOMENTUM_ALPHA = 0.9  
 
     # Launch a thread per microphone
     threads = []
@@ -163,19 +171,29 @@ def main():
 
     try:
         while True:
+            # Smooth the amplitudes in the main loop:
+            for i in range(n_mics):
+                # momentum_amplitudes[i] <- alpha * old + (1-alpha)* new
+                momentum_amplitudes[i] = (
+                    MOMENTUM_ALPHA * momentum_amplitudes[i] 
+                    + (1.0 - MOMENTUM_ALPHA) * shared_amplitudes[i]
+                )
+
             # Avoid division by zero
-            if np.sum(shared_amplitudes) > 0:
-                softmax_values = softmax(shared_amplitudes)
+            if np.sum(momentum_amplitudes) > 0:
+                # For sharper distinctions, we can pass a small temperature
+                softmax_values = softmax(momentum_amplitudes, temperature=0.1)
             else:
                 softmax_values = [0.0] * n_mics
 
-            # Print out the status (amplitudes & softmax)
+            # Print out the status (both raw and momentum amplitudes)
             print(
-                f"Amplitudes: {shared_amplitudes}\n"
-                f"Softmax:    {softmax_values}\n"
+                f"Raw Amp: {np.round(shared_amplitudes, 4)}\n"
+                f"SmthAmp: {np.round(momentum_amplitudes, 4)}\n"
+                f"Softmax: {np.round(softmax_values, 4)}\n"
             )
 
-            # Update the direction arrow for the top two mics
+            # Update the direction arrow for the top two mics (using smoothed amps)
             update_plot_top_two(ax, softmax_values, n_mics)
 
             time.sleep(0.2)
