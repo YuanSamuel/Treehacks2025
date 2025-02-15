@@ -37,6 +37,28 @@ def select_device():
         except ValueError:
             print("Invalid input. Please enter a number.")
 
+def select_microphone():
+    """Prompts the user to select a microphone from available options on Linux."""
+    available_mics = sr.Microphone.list_microphone_names()
+
+    if not available_mics:
+        print("No microphones detected. Please check your audio setup.")
+        exit(1)
+
+    print("Available microphone devices:")
+    for index, name in enumerate(available_mics):
+        print(f"[{index}] {name}")
+
+    while True:
+        try:
+            choice = int(input("Select the microphone index to use: "))
+            if 0 <= choice < len(available_mics):
+                return sr.Microphone(sample_rate=16000, device_index=choice)
+            else:
+                print("Invalid choice. Please select a valid index.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="medium", help="Model to use",
@@ -50,10 +72,6 @@ def main():
     parser.add_argument("--phrase_timeout", default=3,
                         help="How much empty space between recordings before we "
                              "consider it a new line in the transcription.", type=float)
-    if 'linux' in platform:
-        parser.add_argument("--default_microphone", default='pulse',
-                            help="Default microphone name for SpeechRecognition. "
-                                 "Run this with 'list' to view available Microphones.", type=str)
     args = parser.parse_args()
 
     device = select_device()
@@ -64,26 +82,9 @@ def main():
     recorder.energy_threshold = args.energy_threshold
     recorder.dynamic_energy_threshold = False
 
+    # Microphone selection
     if 'linux' in platform:
-        mic_name = args.default_microphone
-        available_mics = sr.Microphone.list_microphone_names()
-        
-        if not mic_name or mic_name == 'list':
-            print("Available microphone devices:")
-            for index, name in enumerate(available_mics):
-                print(f"[{index}] {name}")
-            exit(1)  # Exit to prevent unassigned variable
-
-        source = None
-        for index, name in enumerate(available_mics):
-            if mic_name in name:
-                source = sr.Microphone(sample_rate=16000, device_index=index)
-                break
-
-        if source is None:
-            print(f"Microphone '{mic_name}' not found. Please check `list`.")
-            exit(1)  # Exit to prevent error
-
+        source = select_microphone()
     else:
         source = sr.Microphone(sample_rate=16000)
 
