@@ -2,14 +2,10 @@ import sounddevice as sd
 import numpy as np
 import threading
 import time
+import argparse
 
 # We use an Event to signal when we want all threads to stop.
 stop_event = threading.Event()
-
-def softmax(x):
-    """Compute softmax values for an array x."""
-    exp_x = np.exp(x - np.max(x))  # Stability improvement by subtracting max
-    return exp_x / np.sum(exp_x)
 
 def audio_callback(indata, frames, time_info, status, mic_index, shared_amplitudes):
     """
@@ -40,19 +36,31 @@ def record_microphone(mic_index, device_index, shared_amplitudes, samplerate=441
             sd.sleep(100)
 
 def main():
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="Monitor microphone amplitudes with an optional threshold.")
+    parser.add_argument("-t", "--threshold", type=float, default=None, help="Amplitude threshold for printing (optional).")
+    args = parser.parse_args()
+    threshold = args.threshold  # Get the threshold value (or None if not provided)
+
     # Print available devices to help user pick indices
     print("Available audio devices:")
     print(sd.query_devices())
 
     # Ask the user for device indices (comma-separated)
-    devices_str = input(
-        "Enter device indices (comma-separated) for the microphones you want to use: "
-    )
+    devices_str = input("\nEnter device indices (comma-separated) for the microphones you want to use: ")
     device_indices = [int(x.strip()) for x in devices_str.split(",")]
     n_mics = len(device_indices)
-    
+
     if n_mics < 1:
         print("Please provide at least one device index.")
+        return
+
+    # Ask for user-friendly names for each microphone
+    mic_names_str = input("\nEnter names for each microphone (comma-separated, in the same order as the indices): ")
+    mic_names = [x.strip() for x in mic_names_str.split(",")]
+
+    if len(mic_names) != n_mics:
+        print("Error: The number of names must match the number of device indices.")
         return
 
     # Initialize a shared list of amplitudes for each mic
@@ -68,22 +76,25 @@ def main():
         t.start()
         threads.append(t)
 
-    print(f"Recording from {n_mics} devices... Press Ctrl+C to stop.")
+    print(f"\nRecording from {n_mics} devices... Press Ctrl+C to stop.")
+    if threshold:
+        print(f"Only printing when amplitude exceeds {threshold}.")
 
     try:
         while True:
-            # Compute softmax of amplitudes
             if np.sum(shared_amplitudes) > 0:  # Avoid division by zero
-                softmax_values = softmax(shared_amplitudes)
-                loudest_mic = np.argmax(softmax_values)
+                loudest_mic_index = np.argmax(shared_amplitudes)
+                loudest_mic_name = mic_names[loudest_mic_index]
             else:
-                softmax_values = [0.0] * n_mics  # If all zero, no confidence in any mic
-                loudest_mic = None
+                loudest_mic_name = "None"
 
-            print(
-                f"Loudest microphone index: {loudest_mic} "
-                f"(softmax={softmax_values}, amplitudes={shared_amplitudes})"
-            )
+            # Check if any amplitude exceeds the threshold (if provided)
+            if threshold is None or any(amp > threshold for amp in shared_amplitudes):
+                print(
+                    f"Loudest microphone: {loudest_mic_name} "
+                    f"amplitudes={shared_amplitudes})"
+                )
+
             time.sleep(0.2)  # Adjust frequency of printing as desired
 
     except KeyboardInterrupt:
