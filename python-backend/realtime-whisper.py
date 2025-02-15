@@ -53,7 +53,7 @@ def select_microphone():
         try:
             choice = int(input("Select the microphone index to use: "))
             if 0 <= choice < len(available_mics):
-                return sr.Microphone(sample_rate=16000, device_index=choice)
+                return sr.Microphone(device_index=choice)
             else:
                 print("Invalid choice. Please select a valid index.")
         except ValueError:
@@ -83,10 +83,10 @@ def main():
     recorder.dynamic_energy_threshold = False
 
     # Microphone selection
-    if 'linux' in platform:
-        source = select_microphone()
-    else:
-        source = sr.Microphone(sample_rate=16000)
+    # if 'linux' in platform:
+    #     source = select_microphone()
+    # else:
+    source = sr.Microphone(sample_rate=16000)
 
     model = args.model
     if args.model != "large" and not args.non_english:
