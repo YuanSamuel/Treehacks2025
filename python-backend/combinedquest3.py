@@ -122,7 +122,7 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
             mean_scores = np.mean(scores.numpy(), axis=0)
             top_index = np.argmax(mean_scores)
             top_score = mean_scores[top_index]
-            classification = f"{class_names[top_index]}: {top_score:.3f}"
+            classification = f"{class_names[top_index]}"
             print("[CLASSIFICATION]", classification)
 
             try:
