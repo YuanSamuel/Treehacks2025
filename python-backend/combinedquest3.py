@@ -125,17 +125,17 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
             classification = f"{class_names[top_index]}: {top_score:.3f}"
             print("[CLASSIFICATION]", classification)
             
-            try:
-                direction = mic_tuning.direction
-
-                send_message(host, port, {
+            send_message(host, port, {
                     "type": "classification",
                     "payload": {
-                        "angle": direction,
+                        "angle": 123,
                         "volume": f"{np.max(buffer_copy):.3f}",  
                         "class_name": classification
                     }
                 })
+
+            try:
+                direction = mic_tuning.direction
             except Exception as e:
                 print(f"[ANGLE] Error: {e}")
                 direction = "Unknown"
@@ -158,7 +158,7 @@ def send_message(host: str, port: int, message: dict):
             encoded_message = f"0|{message['payload']}"
         elif message["type"] == "classification":
             # Extract tuple components: (angle, volume, class_name)
-            angle, volume, class_name = message["payload"]
+            angle, volume, class_name = message['payload']
 
             # Normalize class_name for case-insensitive matching.
             class_lower = class_name.lower()
