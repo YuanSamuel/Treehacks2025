@@ -104,6 +104,14 @@ def main():
         print("Failed to connect to WebSocket server:", e)
         ws = None
 
+    # Prompt for confirmation if WebSocket connection is established.
+    if ws is not None:
+        confirm = input("WebSocket connection established. Do you want to continue using it? (y/n): ").strip().lower()
+        if confirm not in ("y", "yes"):
+            print("WebSocket connection will not be used.")
+            ws.close()
+            ws = None
+
     # Initialize a rolling buffer (for audio at the target sample rate)
     rolling_audio = np.zeros((0,), dtype=np.float32)
     # A temporary buffer to store new audio chunks from the callback
