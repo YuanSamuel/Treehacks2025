@@ -1,14 +1,11 @@
 import argparse
 import asyncio
 import websockets
+import json
 import numpy as np
 import whisper
 import torch
-import json
-
-from datetime import datetime, timedelta
-from queue import Queue
-
+from datetime import datetime
 
 def list_devices():
     devices = {"cpu": "CPU"}
@@ -21,69 +18,83 @@ def list_devices():
         devices["mps"] = "MPS (Mac Metal)"
     return devices
 
-
 def select_device():
     devices = list_devices()
-    return list(devices.keys())[0]  # Default to first available device
-
+    print("Available devices:")
+    for i, (key, value) in enumerate(devices.items()):
+        print(f"{i}: {value} ({key})")
+    while True:
+        try:
+            choice = int(input("Select a device by number: "))
+            if 0 <= choice < len(devices):
+                return list(devices.keys())[choice]
+            else:
+                print("Invalid choice. Please select a valid number.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
 
 class TranscriptionServer:
     def __init__(self, model, device, phrase_timeout=3):
-        self.audio_model = whisper.load_model(model, device=device)
-        self.transcription = []
+        self.device = device
         self.phrase_timeout = phrase_timeout
-        self.phrase_time = None
-        self.data_queue = Queue()
-        print("Whisper model loaded.")
+        self.audio_model = whisper.load_model(model, device=device)
+        print("Whisper model loaded on", device)
 
-    async def handler(self, websocket, path):
+    async def handler(self, websocket, path=None):
         print("Client connected.")
-        try:
-            async for message in websocket:
-                try:
-                    data = json.loads(message)
-                    if "audio" in data:
-                        audio_bytes = bytes(data["audio"])
-                        self.data_queue.put(audio_bytes)
+        audio_buffer = bytearray()
+        buffer_start_time = None
 
-                        now = datetime.utcnow()
-                        phrase_complete = False
-                        if self.phrase_time and now - self.phrase_time > timedelta(seconds=self.phrase_timeout):
-                            phrase_complete = True
-                        self.phrase_time = now
-
-                        audio_chunks = []
-                        while not self.data_queue.empty():
-                            audio_chunks.append(self.data_queue.get())
-                        audio_data = b"".join(audio_chunks)
-
-                        audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-                        result = self.audio_model.transcribe(audio_np, fp16=("cuda" in device))
-                        text = result['text'].strip()
-
-                        if phrase_complete:
-                            self.transcription.append(f'{text} ')
-                        else:
-                            if self.transcription:
-                                self.transcription[-1] += f'{text} '
-                            else:
-                                self.transcription.append(f'{text} ')
-
+        async def process_buffer():
+            nonlocal audio_buffer, buffer_start_time
+            if audio_buffer and buffer_start_time:
+                elapsed = (datetime.utcnow() - buffer_start_time).total_seconds()
+                if elapsed >= self.phrase_timeout:
+                    try:
+                        # Convert raw bytes to a NumPy array.
+                        audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+                        use_fp16 = self.device.startswith("cuda")
+                        result = self.audio_model.transcribe(audio_np, fp16=use_fp16)
+                        text = result.get("text", "").strip()
                         response = json.dumps({"transcription": text})
                         await websocket.send(response)
+                    except Exception as e:
+                        print("Error during transcription:", e)
+                    # Reset buffer after processing.
+                    audio_buffer.clear()
+                    buffer_start_time = None
 
-                except Exception as e:
-                    print(f"Error processing audio: {e}")
-        except websockets.exceptions.ConnectionClosed:
-            print("Client disconnected.")
+        try:
+            while True:
+                try:
+                    message = await asyncio.wait_for(websocket.recv(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    message = None
 
+                if message:
+                    try:
+                        data = json.loads(message)
+                        if "audio" in data:
+                            audio_bytes = bytes(data["audio"])
+                            if buffer_start_time is None:
+                                buffer_start_time = datetime.utcnow()
+                            audio_buffer.extend(audio_bytes)
+                    except Exception as e:
+                        print("Error processing received audio data:", e)
+
+                # Process the accumulated buffer if needed.
+                await process_buffer()
+        except websockets.exceptions.ConnectionClosed as e:
+            print("Client disconnected. Code:", e.code, "Reason:", e.reason)
+        except Exception as e:
+            print("Unexpected error in handler:", e)
 
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="medium", help="Model to use",
                         choices=["tiny", "base", "small", "medium", "large", "turbo"])
-    parser.add_argument("--non_english", action='store_true', help="Don't use the English model.")
-    parser.add_argument("--phrase_timeout", default=3, help="Silence timeout before starting a new phrase.", type=float)
+    parser.add_argument("--non_english", action="store_true", help="Don't use the English model.")
+    parser.add_argument("--phrase_timeout", default=3, help="Silence timeout before processing a phrase.", type=float)
     args = parser.parse_args()
 
     device = select_device()
@@ -91,12 +102,19 @@ async def main():
     if args.model != "large" and not args.non_english:
         model = model + ".en"
 
-    server = TranscriptionServer(model, device, phrase_timeout=args.phrase_timeout)
-    
-    async with websockets.serve(server.handler, "0.0.0.0", 8080):
-        print("WebSocket server running on ws://0.0.0.0:8080")
-        await asyncio.Future()  # Keep running
+    server_instance = TranscriptionServer(model, device, phrase_timeout=args.phrase_timeout)
 
+    try:
+        async with websockets.serve(
+            server_instance.handler,
+            "0.0.0.0",
+            8080,
+            ping_interval=20
+        ) as server:
+            print("WebSocket server running on ws://0.0.0.0:8080")
+            await asyncio.Future()  # Run forever.
+    except Exception as e:
+        print("Server encountered an error:", e)
 
 if __name__ == "__main__":
     asyncio.run(main())

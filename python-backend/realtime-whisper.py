@@ -83,10 +83,10 @@ def main():
     recorder.dynamic_energy_threshold = False
 
     # Microphone selection
-    # if 'linux' in platform:
-    #     source = select_microphone()
-    # else:
-    source = sr.Microphone(sample_rate=16000)
+    if 'linux' in platform:
+        source = select_microphone()
+    else:
+        source = sr.Microphone(sample_rate=16000)
 
     model = args.model
     if args.model != "large" and not args.non_english:
