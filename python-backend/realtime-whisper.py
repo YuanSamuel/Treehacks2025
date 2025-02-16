@@ -69,7 +69,7 @@ def main():
                         help="Energy level for mic to detect (in int16 units).", type=int)
     parser.add_argument("--phrase_timeout", default=3,
                         help="Timeout (in seconds) between processed chunks to consider it a new phrase.", type=float)
-    parser.add_argument("--silence_timeout", default=0.25,
+    parser.add_argument("--silence_timeout", default=0.1,
                         help="Time (in seconds) of silence (below energy threshold) to trigger processing of the accumulated chunk.", type=float)
     args = parser.parse_args()
 
@@ -151,7 +151,7 @@ def main():
                     if (last_process_time is None) or ((now - last_process_time) > args.phrase_timeout):
                         transcription.append(text + " ")
                     else:
-                        transcription[-1] = text
+                        transcription[-1] += text + " "
                     
                     last_process_time = now
                     
