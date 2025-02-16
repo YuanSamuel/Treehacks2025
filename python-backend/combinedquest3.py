@@ -142,7 +142,7 @@ def classification_thread(stop_event, yamnet_model, class_names, sock, sock_lock
             rms_value = np.sqrt(np.mean(np.square(buffer_copy)))
             volume_db = 20 * math.log10(rms_value + 1e-9)  # in dB
 
-            direction = (direction - 90) / 360
+            direction = (direction - 90) % 360
             # Normalize dB value between 0 and 3.
             # Quiet: -53 dB -> 0, Loud: -8 dB -> 3.
             normalized_volume = (volume_db + 53) / 45 * 3
