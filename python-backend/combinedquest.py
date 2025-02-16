@@ -224,7 +224,7 @@ def main():
                         help="MetaQuest port number")
     parser.add_argument("--trans_input_device", type=int, default=None,
                         help="Input device ID for transcription (if not provided, will prompt)")
-    parser.add_argument("--yamnet_csv", type=str, default="../yamnet_local/yamnet_class_map.csv",
+    parser.add_argument("--yamnet_csv", type=str, default="./yamnet_local/yamnet_class_map.csv",
                         help="Path to the YAMNet class map CSV")
     args = parser.parse_args()
 
@@ -252,7 +252,7 @@ def main():
 
     # Load YAMNet model and class names
     print("[MAIN] Loading YAMNet model...")
-    yamnet_model = hub.load('../yamnet_local')
+    yamnet_model = hub.load('./yamnet_local')
     class_names = load_class_names(args.yamnet_csv)
     print("[MAIN] YAMNet model loaded.")
 
