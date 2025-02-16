@@ -7,6 +7,7 @@ import sounddevice as sd
 import scipy.signal  # For resampling
 from time import sleep, time
 from sys import platform
+import websocket  # Added for websocket communication
 
 def list_devices():
     devices = {"cpu": "CPU"}
@@ -95,6 +96,14 @@ def main():
     audio_model = whisper.load_model(model_name, device=device)
     print("Model loaded.")
 
+    # Connect to the websocket server.
+    try:
+        ws = websocket.create_connection("ws://localhost:8765")
+        print("Connected to WebSocket server at ws://localhost:8765")
+    except Exception as e:
+        print("Failed to connect to WebSocket server:", e)
+        ws = None
+
     # Initialize a rolling buffer (for audio at the target sample rate)
     rolling_audio = np.zeros((0,), dtype=np.float32)
     # A temporary buffer to store new audio chunks from the callback
@@ -109,9 +118,9 @@ def main():
         new_audio_buffer.append(indata.copy())
 
     print("Recording... Press Ctrl+C to stop.")
-    with sd.InputStream(samplerate=device_fs, device=sd_device, channels=channels,
-                        dtype="float32", callback=callback):
-        try:
+    try:
+        with sd.InputStream(samplerate=device_fs, device=sd_device, channels=channels,
+                            dtype="float32", callback=callback):
             while True:
                 if new_audio_buffer:
                     # Concatenate the new chunks
@@ -140,10 +149,20 @@ def main():
                     # Clear the screen and print the rolling transcription.
                     os.system("cls" if os.name == "nt" else "clear")
                     print(text)
+                    
+                    # Send the transcribed text to the WebSocket server.
+                    if ws is not None:
+                        try:
+                            ws.send(text)
+                        except Exception as e:
+                            print("Failed to send message over WebSocket:", e)
                 
                 sleep(0.01)
-        except KeyboardInterrupt:
-            print("Stopping...")
+    except KeyboardInterrupt:
+        print("Stopping...")
+    finally:
+        if ws is not None:
+            ws.close()
 
 if __name__ == "__main__":
     main()
