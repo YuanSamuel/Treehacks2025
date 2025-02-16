@@ -84,7 +84,8 @@ def main():
         sd_device = None
 
     # Set desired sample rate and channels.
-    fs = 16000
+    device_info = sd.query_devices(sd_device, 'input')
+    fs = int(device_info['default_samplerate'])
     channels = 1
 
     # Adjust model name based on language settings.
