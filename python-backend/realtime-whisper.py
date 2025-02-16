@@ -143,13 +143,12 @@ def main():
         ws = None
 
     # Prompt for confirmation if WebSocket connection is established.
-    if ws is not None:
-        confirm = input("WebSocket connection established. Do you want to continue using it? (y/n): ").strip().lower()
-        if confirm not in ("y", "yes"):
-            print("WebSocket connection will not be used.")
-            ws.close()
-            ws = None
-            use_ws = False
+    confirm = input(f"WebSocket connection {"was not" if ws is None else "was"} established. Continue? (y/n): ").strip().lower()
+    if confirm not in ("y", "yes"):
+        print("WebSocket connection will not be used.")
+        ws.close()
+        ws = None
+        use_ws = False
 
     # Helper function: try connecting once (non-blocking in main loop).
     def try_connect_ws(url):
