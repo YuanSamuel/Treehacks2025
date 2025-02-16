@@ -18,7 +18,7 @@ APPROVED_CATEGORIES = {
     "Yell": ["shout", "whoop", "yell"],
     "Clapping": ["wood", "chop", "crack", "clapping", "applause", "hands", "door", "bouncing", "hammer"],
     "Speech": ["speech", "narration", "conversation", "monologue"],
-    "Siren": ["siren", "alarm", "buzzer"]
+    "Siren": ["siren", "alarm", "buzzer", "vehicle horn, car horn, honking"]
 }
 
 def list_devices():
