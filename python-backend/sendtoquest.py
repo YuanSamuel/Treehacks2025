@@ -81,6 +81,8 @@ def sound_classification_thread(stop_event, device_id, metaquest_host, metaquest
     """
     Continuously record audio, compute its RMS (volume), run inference with YAMNet,
     and send the direction, magnitude, and top prediction to MetaQuest via UDP.
+    Only five classes are considered: Speech, Clapping, Siren, Noise, and Silence.
+    Their respective logits are printed for each inference.
     """
     sample_rate = 16000  # YAMNet expects 16 kHz mono audio.
     duration = 1.0       # seconds per inference
@@ -111,23 +113,43 @@ def sound_classification_thread(stop_event, device_id, metaquest_host, metaquest
                 waveform = tf.convert_to_tensor(mono_audio)
                 
                 # Run inference with YAMNet.
-                waveform = tf.convert_to_tensor(mono_audio)
                 with tf.device('/GPU:0'):
                     scores, embeddings, spectrogram = yamnet_model(waveform)
                 mean_scores = np.mean(scores, axis=0)
-                top_index = np.argsort(mean_scores)[-1]
-                top_score = mean_scores[top_index]
+                
+                # Define the allowed classes (indices correspond to the rows in the CSV):
+                # 0: Speech, 58: Clapping, 390: Siren, 507: Noise, 494: Silence
+                allowed_indices = [0, 58, 390, 507, 494]
+                
+                # Extract the scores for only the allowed classes.
+                allowed_scores = mean_scores[allowed_indices]
+                
+                # Find the allowed class with the highest score.
+                best_allowed_idx = np.argmax(allowed_scores)
+                predicted_index = allowed_indices[best_allowed_idx]
+                predicted_class = class_names[predicted_index]
+                confidence = allowed_scores[best_allowed_idx]
+                
+                # Optionally, set a confidence threshold.
+                confidence_threshold = 0.5  # adjust threshold as needed
+                if confidence < confidence_threshold:
+                    prediction_text = "None (low confidence)"
+                else:
+                    prediction_text = f"{predicted_class} (Confidence: {confidence:.3f})"
+                
+                # Create a string with all 5 logits.
+                logits_details = ", ".join(f"{class_names[idx]}: {mean_scores[idx]:.3f}" for idx in allowed_indices)
                 
                 angle_info = current_angle if current_angle is not None else "N/A"
                 
-                # Build the message with direction, magnitude, and prediction.
+                # Build the message with direction, magnitude, prediction, and allowed logits.
                 message = (f"Direction: {angle_info} | Magnitude: {volume_db:.2f} dB | "
-                           f"Prediction: {class_names[top_index]}: {top_score:.3f}")
+                           f"Prediction: {prediction_text} | Logits: [{logits_details}]")
                 
                 print("[PREDICTION]", message)
                 
-                # Send the message to MetaQuest via UDP.
-                send_message(metaquest_host, metaquest_port, message)
+                # Uncomment below to send the message to MetaQuest via UDP.
+                # send_message(metaquest_host, metaquest_port, message)
     except Exception as e:
         print(f"[PREDICTION] Error: {e}")
 

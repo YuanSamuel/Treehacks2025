@@ -126,13 +126,13 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
             print("[CLASSIFICATION]", classification)
             
             send_message(host, port, {
-                    "type": "classification",
-                    "payload": {
-                        "angle": 123,
-                        "volume": f"{np.max(buffer_copy):.3f}",  
-                        "class_name": classification
-                    }
-                })
+                "type": "classification",
+                "payload": {
+                    "angle": 123,
+                    "volume": f"{np.max(buffer_copy):.3f}",  
+                    "class_name": classification
+                }
+            })
 
             try:
                 direction = mic_tuning.direction
