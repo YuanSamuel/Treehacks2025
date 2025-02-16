@@ -65,7 +65,7 @@ def main():
                         choices=["tiny", "base", "small", "medium", "large", "turbo"])
     parser.add_argument("--non_english", action='store_true',
                         help="Don't use the English model.")
-    parser.add_argument("--energy_threshold", default=600,
+    parser.add_argument("--energy_threshold", default=700,
                         help="Energy level for mic to detect (in int16 units).", type=int)
     parser.add_argument("--phrase_timeout", default=3,
                         help="Timeout (in seconds) between processed chunks to consider it a new phrase.", type=float)
@@ -151,7 +151,7 @@ def main():
                     if (last_process_time is None) or ((now - last_process_time) > args.phrase_timeout):
                         transcription.append(text + " ")
                     else:
-                        transcription[-1] += text + " "
+                        transcription[-1] = text
                     
                     last_process_time = now
                     
