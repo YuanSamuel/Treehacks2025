@@ -207,25 +207,19 @@ def main():
     
     stop_event = threading.Event()
     device = select_device()
+
+    # --- Device selection: allow one or two microphones ---
     if args.trans_input_device is None:
         args.trans_input_device = select_input_device("transcription")
     if args.class_input_device is None:
-        args.class_input_device = select_input_device("classification")
-    
-    # Query default sample rates for the selected devices.
-    trans_dev_info = sd.query_devices(args.trans_input_device, 'input')
-    trans_rate = trans_dev_info['default_samplerate']
-    class_dev_info = sd.query_devices(args.class_input_device, 'input')
-    class_rate = class_dev_info['default_samplerate']
-    
-    # The target sample rate for processing is 16,000 Hz.
-    device_fs = 16000
-    # Create separate audio buffers and locks for transcription and classification.
-    transcription_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
-    classification_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
-    transcription_lock = threading.Lock()
-    classification_lock = threading.Lock()
-    
+        # Ask user if they want a separate microphone for classification.
+        separate = input("Do you want to use a separate microphone for classification? (y/n): ").strip().lower()
+        if separate.startswith('y'):
+            args.class_input_device = select_input_device("classification")
+        else:
+            args.class_input_device = args.trans_input_device
+
+    # --- Load models and establish connection ---
     print("[MAIN] Loading models...")
     model_name = args.model
     if args.model not in ["large", "turbo"] and not args.non_english:
@@ -249,39 +243,81 @@ def main():
 
     persistent_sock_lock = threading.Lock()
     
-    print("[MAIN] Starting audio input streams...")
-    with sd.InputStream(
-        samplerate=trans_rate,  # Use the device's default sample rate.
-        device=args.trans_input_device,
-        channels=1,
-        dtype="float32",
-        callback=lambda indata, frames, time_info, status: audio_callback(
-            indata, frames, time_info, status, transcription_audio_buffer, transcription_lock, trans_rate)
-    ) as trans_stream, sd.InputStream(
-        samplerate=class_rate,  # Use the device's default sample rate.
-        device=args.class_input_device,
-        channels=1,
-        dtype="float32",
-        callback=lambda indata, frames, time_info, status: audio_callback(
-            indata, frames, time_info, status, classification_audio_buffer, classification_lock, class_rate)
-    ) as class_stream:
-        t1 = threading.Thread(target=transcription_thread, args=(
-            stop_event, audio_model, device, persistent_sock, persistent_sock_lock,
-            transcription_audio_buffer, transcription_lock
-        ))
-        t2 = threading.Thread(target=classification_thread, args=(
-            stop_event, yamnet_model, class_names, persistent_sock, persistent_sock_lock,
-            classification_audio_buffer, classification_lock
-        ))
-        t1.start()
-        t2.start()
-        try:
-            while not stop_event.is_set():
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            stop_event.set()
-        t1.join()
-        t2.join()
+    # --- Create audio stream(s) based on device selection ---
+    if args.trans_input_device == args.class_input_device:
+        print("[MAIN] Using single microphone for both transcription and classification.")
+        device_info = sd.query_devices(args.trans_input_device, 'input')
+        rate = device_info['default_samplerate']
+        # Use one shared audio buffer and lock.
+        shared_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
+        shared_lock = threading.Lock()
+        with sd.InputStream(
+            samplerate=rate,
+            device=args.trans_input_device,
+            channels=1,
+            dtype="float32",
+            callback=lambda indata, frames, time_info, status: audio_callback(
+                indata, frames, time_info, status, shared_audio_buffer, shared_lock, rate)
+        ) as stream:
+            t1 = threading.Thread(target=transcription_thread, args=(
+                stop_event, audio_model, device, persistent_sock, persistent_sock_lock,
+                shared_audio_buffer, shared_lock
+            ))
+            t2 = threading.Thread(target=classification_thread, args=(
+                stop_event, yamnet_model, class_names, persistent_sock, persistent_sock_lock,
+                shared_audio_buffer, shared_lock
+            ))
+            t1.start()
+            t2.start()
+            try:
+                while not stop_event.is_set():
+                    time.sleep(0.1)
+            except KeyboardInterrupt:
+                stop_event.set()
+            t1.join()
+            t2.join()
+    else:
+        print("[MAIN] Using separate microphones for transcription and classification.")
+        trans_dev_info = sd.query_devices(args.trans_input_device, 'input')
+        trans_rate = trans_dev_info['default_samplerate']
+        class_dev_info = sd.query_devices(args.class_input_device, 'input')
+        class_rate = class_dev_info['default_samplerate']
+        transcription_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
+        classification_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
+        transcription_lock = threading.Lock()
+        classification_lock = threading.Lock()
+        with sd.InputStream(
+            samplerate=trans_rate,  # Use the device's default sample rate.
+            device=args.trans_input_device,
+            channels=1,
+            dtype="float32",
+            callback=lambda indata, frames, time_info, status: audio_callback(
+                indata, frames, time_info, status, transcription_audio_buffer, transcription_lock, trans_rate)
+        ) as trans_stream, sd.InputStream(
+            samplerate=class_rate,  # Use the device's default sample rate.
+            device=args.class_input_device,
+            channels=1,
+            dtype="float32",
+            callback=lambda indata, frames, time_info, status: audio_callback(
+                indata, frames, time_info, status, classification_audio_buffer, classification_lock, class_rate)
+        ) as class_stream:
+            t1 = threading.Thread(target=transcription_thread, args=(
+                stop_event, audio_model, device, persistent_sock, persistent_sock_lock,
+                transcription_audio_buffer, transcription_lock
+            ))
+            t2 = threading.Thread(target=classification_thread, args=(
+                stop_event, yamnet_model, class_names, persistent_sock, persistent_sock_lock,
+                classification_audio_buffer, classification_lock
+            ))
+            t1.start()
+            t2.start()
+            try:
+                while not stop_event.is_set():
+                    time.sleep(0.1)
+            except KeyboardInterrupt:
+                stop_event.set()
+            t1.join()
+            t2.join()
     persistent_sock.close()
     print("[MAIN] Exiting.")
 
