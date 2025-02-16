@@ -212,7 +212,7 @@ def send_message(host: str, port: int, message: str):
 # ----------------------
 def main():
     parser = argparse.ArgumentParser(description="Combined Audio Transcription and Classification with Single Input Stream")
-    parser.add_argument("--model", default="medium", choices=["tiny", "base", "small", "medium", "large", "turbo"],
+    parser.add_argument("--model", default="tiny", choices=["tiny", "base", "small", "medium", "large", "turbo"],
                         help="Whisper model to use")
     parser.add_argument("--non_english", action='store_true',
                         help="Do not use English-specific Whisper model")
