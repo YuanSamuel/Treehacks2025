@@ -9,8 +9,8 @@ import socket
 import csv
 import time
 import torch
-# Assuming usb.core and Tuning are imported/defined elsewhere
 import usb.core
+from tuning import Tuning
 
 def list_devices():
     devices = {"cpu": "CPU"}
