@@ -25,7 +25,7 @@ def select_microphone():
             print("Invalid input. Please enter a number.")
 
 async def send_audio():
-    uri = "ws://localhost:8888"
+    uri = "ws://localhost:8080"
     mic = select_microphone()
     recognizer = sr.Recognizer()
     recognizer.energy_threshold = 1000

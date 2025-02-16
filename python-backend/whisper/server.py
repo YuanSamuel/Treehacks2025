@@ -93,8 +93,8 @@ async def main():
 
     server = TranscriptionServer(model, device, phrase_timeout=args.phrase_timeout)
     
-    async with websockets.serve(server.handler, "0.0.0.0", 8888):
-        print("WebSocket server running on ws://0.0.0.0:8888")
+    async with websockets.serve(server.handler, "0.0.0.0", 8080):
+        print("WebSocket server running on ws://0.0.0.0:8080")
         await asyncio.Future()  # Keep running
 
 
