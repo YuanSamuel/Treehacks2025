@@ -65,7 +65,7 @@ def main():
                         choices=["tiny", "base", "small", "medium", "large", "turbo"])
     parser.add_argument("--non_english", action='store_true',
                         help="Don't use the english model.")
-    parser.add_argument("--energy_threshold", default=500,
+    parser.add_argument("--energy_threshold", default=100,
                         help="Energy level for mic to detect (in int16 units).", type=int)
     parser.add_argument("--record_timeout", default=0.5,
                         help="Time interval (in seconds) for processing audio chunks.", type=float)
