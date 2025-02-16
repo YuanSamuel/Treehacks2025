@@ -1,7 +1,6 @@
 import sounddevice as sd
 import numpy as np
 import time
-import scipy.io.wavfile as wav
 
 def record_microphones(device_indices, mic_names, duration=10, samplerate=16000):
     """
