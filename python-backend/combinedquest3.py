@@ -16,7 +16,7 @@ last_class_time = {}
 THROTTLE = 2
 APPROVED_CATEGORIES = {
     "Yell": ["shout", "whoop", "yell"],
-    "Clapping": ["wood", "chop", "crack", "clapping", "applause", "hands"],
+    "Clapping": ["wood", "chop", "crack", "clapping", "applause", "hands", "door", "bouncing", "hammer"],
     "Speech": ["speech", "narration", "conversation", "monologue"],
     "Siren": ["siren", "alarm", "buzzer"]
 }
@@ -174,10 +174,11 @@ def send_message(host: str, port: int, message: dict):
             # Get the current time
             current_time = time.time()
 
-
             # Check for throttling: if a message for this class was sent less than THROTTLE seconds ago, skip sending.
             if final_class in last_class_time and (current_time - last_class_time[final_class] < THROTTLE):
                 return
+
+            print(f"we are sending: [{final_class}]")
 
             # Update the last sent time for this class.
             last_class_time[final_class] = current_time
