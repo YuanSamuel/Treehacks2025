@@ -105,11 +105,18 @@ def main():
     input_device = select_input_device()
     sd_device = input_device if input_device is not None else None
 
+    # Query the device info to get sample rate and host API.
+    device_info = sd.query_devices(sd_device, 'input')
+    hostapi_index = device_info['hostapi']
+    hostapi_name = sd.query_hostapis()[hostapi_index]['name']
+    
+    if "pulse" in hostapi_name.lower():
+        print(f"Using PulseAudio input device: {device_info['name']}")
+    else:
+        print(f"Using non-PulseAudio input device: {device_info['name']}")
+    
     # Set target sample rate for Whisper.
     target_fs = 16000
-
-    # Query the default sample rate of the input device.
-    device_info = sd.query_devices(sd_device, 'input')
     device_fs = int(device_info['default_samplerate'])
     print(f"Device default sample rate: {device_fs} Hz. Will resample to {target_fs} Hz.")
     
