@@ -12,6 +12,15 @@ import torch
 import usb.core
 from tuning import Tuning
 
+last_class_time = {}
+THROTTLE = 2
+APPROVED_CATEGORIES = {
+    "Yell": ["shout", "whoop", "yell"],
+    "Clapping": ["wood", "chop", "crack", "clapping", "applause", "hands"],
+    "Speech": ["speech", "narration", "conversation", "monologue"],
+    "Siren": ["siren", "alarm clock"]
+}
+
 def list_devices():
     devices = {"cpu": "CPU"}
     if torch.cuda.is_available():
@@ -83,7 +92,7 @@ def transcription_thread(stop_event, audio_model, device, host, port, audio_buff
                 transcribe_result = audio_model.transcribe(buffer_copy, fp16=("cuda" in device))
                 transcript_text = transcribe_result['text'].strip()
                 # print("[TRANSCRIPTION]", transcript_text)
-                send_message(host, port, f"Transcript: {transcript_text}")
+                send_message(host, port, {"type": "transcript", "payload": transcript_text})
             except Exception as e:
                 print("[TRANSCRIPTION] Error:", e)
             # Remove buffer_copy so we don't reuse stale data accidentally.
@@ -114,22 +123,72 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
             top_index = np.argmax(mean_scores)
             top_score = mean_scores[top_index]
             classification = f"{class_names[top_index]}: {top_score:.3f}"
-            print("[CLASSIFICATION]", classification)
+            # print("[CLASSIFICATION]", classification)
             try:
                 direction = mic_tuning.direction
             except Exception as e:
                 print(f"[ANGLE] Error: {e}")
                 direction = "Unknown"
-            send_message(host, port, f"Class: {classification} | Angle: {direction} | Volume: {np.max(buffer_copy):.3f}")
+
+            send_message(host, port, {"type": "classification", "payload": {"angle": direction, "volume": np.max(buffer_copy):.3f, "class_name": classification}})
         time.sleep(1)
 
-def send_message(host, port, message):
+def send_message(host: str, port: int, message: dict):
+    """
+    Sends a message over TCP to the specified host and port.
+
+    The message parameter should be a dictionary with two properties:
+      - "type": Either "transcript" or "classification".
+      - "payload":
+          - If type is "transcript": a string.
+          - If type is "classification": a tuple of (angle: int, volume: float, class_name: str).
+    """
     try:
+        if message["type"] == "transcript":
+            # Encode transcript message
+            encoded_message = f"0|{message['payload']}"
+        elif message["type"] == "classification":
+            # Extract tuple components: (angle, volume, class_name)
+            angle, volume, class_name = message["payload"]
+
+            # Normalize class_name for case-insensitive matching.
+            class_lower = class_name.lower()
+
+            # Determine if class_name contains any of the approved keywords.
+            final_class = None
+            for label, keywords in APPROVED_CATEGORIES.items():
+                if any(keyword in class_lower for keyword in keywords):
+                    final_class = label
+                    break
+
+            # If no approved keyword is found, skip the message.
+            if not final_class:
+                return
+
+            # Get the current time
+            current_time = time.time()
+
+
+            # Check for throttling: if a message for this class was sent less than THROTTLE seconds ago, skip sending.
+            if final_class in last_class_time and (current_time - last_class_time[final_class] < THROTTLE):
+                return
+
+            # Update the last sent time for this class.
+            last_class_time[final_class] = current_time
+
+            # Encode classification message using the final_class.
+            encoded_message = f"1|{angle}|{volume}|{final_class}"
+        else:
+            print("[SEND] Unknown message type")
+            return
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            print(f"[SEND] Connecting to {host}:{port}...")
             sock.connect((host, port))
-            sock.sendall(message.encode('utf-8'))
+            print(f"[SEND] Sending message: {encoded_message}")
+            sock.sendall(encoded_message.encode('utf-8'))
     except Exception as e:
-        print("[SEND] Error:", e)
+        print("[SEND] Error sending message:", e)
 
 def main():
     parser = argparse.ArgumentParser()
