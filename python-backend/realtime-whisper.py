@@ -4,6 +4,7 @@ import numpy as np
 import whisper
 import torch
 import sounddevice as sd
+import scipy.signal  # For resampling
 from time import sleep, time
 from sys import platform
 
@@ -79,9 +80,14 @@ def main():
     input_device = select_input_device()
     sd_device = input_device if input_device is not None else None
 
-    # Set desired sample rate and channels.
-    fs = 16000
-    print(f"Sample rate: {fs}")
+    # Set target sample rate for Whisper.
+    target_fs = 16000
+
+    # Query the default sample rate of the input device.
+    device_info = sd.query_devices(sd_device, 'input')
+    device_fs = int(device_info['default_samplerate'])
+    print(f"Device default sample rate: {device_fs} Hz. Will resample to {target_fs} Hz.")
+    
     channels = 1
 
     # Adjust model name based on language settings.
@@ -113,7 +119,7 @@ def main():
             audio_buffer.append(indata.copy())
 
     print("Recording... Press Ctrl+C to stop.")
-    with sd.InputStream(samplerate=fs, device=sd_device, channels=channels,
+    with sd.InputStream(samplerate=device_fs, device=sd_device, channels=channels,
                         dtype="float32", callback=callback):
         try:
             while True:
@@ -129,6 +135,13 @@ def main():
                     # If necessary, flatten the audio array.
                     if audio_data.ndim == 2 and audio_data.shape[1] == 1:
                         audio_data = audio_data.flatten()
+                    
+                    # Resample the audio to 16 kHz if needed.
+                    if device_fs != target_fs:
+                        audio_data = scipy.signal.resample_poly(audio_data, target_fs, device_fs)
+                    
+                    # Ensure the audio data is in float32 format.
+                    audio_data = audio_data.astype(np.float32)
                     
                     # Transcribe the accumulated audio chunk using Whisper.
                     result = audio_model.transcribe(audio_data, fp16=("cuda" in device))
