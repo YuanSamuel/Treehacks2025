@@ -38,11 +38,37 @@ def select_device():
 
 def select_input_device():
     """
-    Lists all devices that have input channels and (if on Linux)
-    prompts the user to select one. On other platforms the default
-    input device is used.
+    Lists input devices. If PulseAudio is running and has available devices,
+    only those are shown. Otherwise, falls back to listing all input devices.
     """
     devices = sd.query_devices()
+    hostapis = sd.query_hostapis()
+    pulse_api_index = None
+    # Look for a host API that includes "pulse" in its name.
+    for idx, ha in enumerate(hostapis):
+        if "pulse" in ha['name'].lower():
+            pulse_api_index = idx
+            break
+    
+    # If PulseAudio is found, filter for PulseAudio input devices.
+    if pulse_api_index is not None:
+        input_indices = [i for i, dev in enumerate(devices)
+                         if dev['max_input_channels'] > 0 and dev['hostapi'] == pulse_api_index]
+        if input_indices:
+            print("Available PulseAudio input devices:")
+            for i in input_indices:
+                print(f"[{i}] {devices[i]['name']}")
+            while True:
+                try:
+                    choice = int(input("Select the device number to use: "))
+                    if choice in input_indices:
+                        return choice
+                    else:
+                        print("Invalid choice. Please select a valid PulseAudio input device index.")
+                except ValueError:
+                    print("Invalid input. Please enter a number.")
+    
+    # Fallback: if no PulseAudio devices are found, list all input devices.
     input_indices = [i for i, dev in enumerate(devices) if dev['max_input_channels'] > 0]
     if not input_indices:
         print("No input devices available. Please check your audio setup.")
@@ -72,10 +98,10 @@ def main():
                         help="Duration (in seconds) of the rolling audio buffer.", type=float)
     args = parser.parse_args()
 
-    # GPU/CPU selection for Whisper
+    # GPU/CPU selection for Whisper.
     device = select_device()
     
-    # Select input device (only prompt on Linux)
+    # Select input device (preferring PulseAudio devices if available).
     input_device = select_input_device()
     sd_device = input_device if input_device is not None else None
 
@@ -132,9 +158,9 @@ def main():
     last_ws_attempt = 0
     reconnect_interval = 5  # seconds
 
-    # Initialize a rolling buffer (for audio at the target sample rate)
+    # Initialize a rolling buffer (for audio at the target sample rate).
     rolling_audio = np.zeros((0,), dtype=np.float32)
-    # A temporary buffer to store new audio chunks from the callback
+    # A temporary buffer to store new audio chunks from the callback.
     new_audio_buffer = []
 
     # The callback simply appends all incoming audio.
@@ -142,7 +168,6 @@ def main():
         nonlocal new_audio_buffer
         if status:
             print(status)
-        # Append the incoming audio chunk (regardless of energy)
         new_audio_buffer.append(indata.copy())
 
     print("Recording... Press Ctrl+C to stop.")
@@ -155,7 +180,7 @@ def main():
                     chunks = new_audio_buffer.copy()
                     new_audio_buffer.clear()
                     audio_chunk = np.concatenate(chunks, axis=0)
-                    # If the audio has a shape (N, 1), flatten it.
+                    # If the audio is shaped (N, 1), flatten it.
                     if audio_chunk.ndim == 2 and audio_chunk.shape[1] == 1:
                         audio_chunk = audio_chunk.flatten()
                     
@@ -195,7 +220,7 @@ def main():
                                 except Exception:
                                     pass
                                 ws = None
-                                last_ws_attempt = time()  # reset reconnect timer
+                                last_ws_attempt = time()  # Reset reconnect timer.
                 sleep(0.01)
     except KeyboardInterrupt:
         print("Stopping...")
