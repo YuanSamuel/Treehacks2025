@@ -77,7 +77,8 @@ def audio_callback(indata, frames, time_info, status, audio_buffer, lock):
         audio_buffer["data"] = np.concatenate([audio_buffer["data"], new_data])
         max_samples = int(5.0 * 16000)
         if audio_buffer["data"].shape[0] > max_samples:
-            audio_buffer["data"] = audio_buffer["data"][-max_samples:]
+            # Instead of keeping the latest samples, clear the buffer to start fresh.
+            audio_buffer["data"] = np.empty((0,), dtype=np.float32)
 
 def transcription_thread(stop_event, audio_model, device, sock, sock_lock, audio_buffer, lock):
     print("[TRANSCRIPTION] Thread started.")
