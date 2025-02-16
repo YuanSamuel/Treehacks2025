@@ -1,13 +1,11 @@
 import argparse
 import os
 import numpy as np
-import speech_recognition as sr
 import whisper
 import torch
-
-from datetime import datetime, timedelta
+import sounddevice as sd
 from queue import Queue
-from time import sleep
+from time import sleep, time
 from sys import platform
 
 def list_devices():
@@ -37,25 +35,27 @@ def select_device():
         except ValueError:
             print("Invalid input. Please enter a number.")
 
-def select_microphone():
-    """Prompts the user to select a microphone from available options on Linux."""
-    available_mics = sr.Microphone.list_microphone_names()
-
-    if not available_mics:
-        print("No microphones detected. Please check your audio setup.")
+def select_input_device():
+    """
+    Lists all devices that have input channels and (if on Linux)
+    prompts the user to select one. On other platforms the default
+    input device is used.
+    """
+    devices = sd.query_devices()
+    input_indices = [i for i, dev in enumerate(devices) if dev['max_input_channels'] > 0]
+    if not input_indices:
+        print("No input devices available. Please check your audio setup.")
         exit(1)
-
-    print("Available microphone devices:")
-    for index, name in enumerate(available_mics):
-        print(f"[{index}] {name}")
-
+    print("Available input devices:")
+    for i in input_indices:
+        print(f"[{i}] {devices[i]['name']}")
     while True:
         try:
-            choice = int(input("Select the microphone index to use: "))
-            if 0 <= choice < len(available_mics):
-                return sr.Microphone(device_index=choice)
+            choice = int(input("Select the device number to use: "))
+            if choice in input_indices:
+                return choice
             else:
-                print("Invalid choice. Please select a valid index.")
+                print("Invalid choice. Please select a valid input device index.")
         except ValueError:
             print("Invalid input. Please enter a number.")
 
@@ -65,79 +65,98 @@ def main():
                         choices=["tiny", "base", "small", "medium", "large", "turbo"])
     parser.add_argument("--non_english", action='store_true',
                         help="Don't use the english model.")
-    parser.add_argument("--energy_threshold", default=1000,
-                        help="Energy level for mic to detect.", type=int)
+    parser.add_argument("--energy_threshold", default=100,
+                        help="Energy level for mic to detect (in int16 units).", type=int)
     parser.add_argument("--record_timeout", default=0.5,
-                        help="How real time the recording is in seconds.", type=float)
+                        help="Time interval (in seconds) for processing audio chunks.", type=float)
     parser.add_argument("--phrase_timeout", default=3,
-                        help="How much empty space between recordings before we "
-                             "consider it a new line in the transcription.", type=float)
+                        help="Timeout (in seconds) between recordings to consider it a new phrase.", type=float)
     args = parser.parse_args()
 
+    # GPU/CPU selection for Whisper
     device = select_device()
     
-    phrase_time = None
-    data_queue = Queue()
-    recorder = sr.Recognizer()
-    recorder.energy_threshold = args.energy_threshold
-    recorder.dynamic_energy_threshold = False
+    # Select input device (only prompt on Linux)
+    input_device = select_input_device()
+    if input_device is not None:
+        sd_device = input_device
+    else:
+        sd_device = None
 
-    # Microphone selection
-    # if 'linux' in platform:
-    #     source = select_microphone()
-    # else:
-    source = sr.Microphone(sample_rate=16000)
+    # Set desired sample rate and channels.
+    device_info = sd.query_devices(sd_device, 'input')
+    fs = int(device_info['default_samplerate'])
+    print(f'Sample rate: {fs}')
+    channels = 1
 
-    model = args.model
+    # Adjust model name based on language settings.
+    model_name = args.model
     if args.model != "large" and not args.non_english:
-        model = model + ".en"
-    audio_model = whisper.load_model(model, device=device)
+        model_name = model_name + ".en"
+    audio_model = whisper.load_model(model_name, device=device)
+    print("Model loaded.")
 
-    record_timeout = args.record_timeout
-    phrase_timeout = args.phrase_timeout
+    # Queue to store audio chunks.
+    audio_queue = Queue()
+    # Time (in seconds) when the last chunk was processed.
+    last_process_time = None
+    # Keep track of the transcription so far.
     transcription = ['']
 
-    with source:
-        recorder.adjust_for_ambient_noise(source)
+    def callback(indata, frames, time_info, status):
+        if status:
+            print(status)
+        # Compute RMS energy of the current block.
+        rms = np.sqrt(np.mean(indata**2))
+        # Convert the int16 threshold to the float32 scale.
+        threshold = args.energy_threshold / 32768.0
+        # If the block is too quiet, skip it.
+        if rms < threshold:
+            return
+        # Otherwise, push a copy of the audio block onto the queue.
+        audio_queue.put(indata.copy())
 
-    def record_callback(_, audio: sr.AudioData) -> None:
-        data = audio.get_raw_data()
-        data_queue.put(data)
-
-    recorder.listen_in_background(source, record_callback, phrase_time_limit=record_timeout)
-
-    print("Model loaded.")
-    while True:
+    print("Recording... Press Ctrl+C to stop.")
+    with sd.InputStream(samplerate=fs, device=sd_device, channels=channels,
+                        dtype='float32', callback=callback):
         try:
-            now = datetime.utcnow()
-            if not data_queue.empty():
-                phrase_complete = False
-                if phrase_time and now - phrase_time > timedelta(seconds=phrase_timeout):
-                    phrase_complete = True
-                phrase_time = now
-                
-                audio_chunks = []
-                while not data_queue.empty():
-                    audio_chunks.append(data_queue.get())
-                audio_data = b''.join(audio_chunks)
+            while True:
+                now = time()
+                if not audio_queue.empty():
+                    # Decide whether this block should start a new phrase.
+                    if last_process_time is not None and now - last_process_time > args.phrase_timeout:
+                        phrase_complete = True
+                    else:
+                        phrase_complete = False
+                    last_process_time = now
 
-                audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-                result = audio_model.transcribe(audio_np, fp16=("cuda" in device))
-                text = result['text'].strip()
+                    # Gather all queued audio chunks.
+                    chunks = []
+                    while not audio_queue.empty():
+                        chunks.append(audio_queue.get())
+                    # Concatenate along the time axis.
+                    audio_data = np.concatenate(chunks, axis=0)
+                    # If the audio data is 2D with one channel, flatten it.
+                    if audio_data.ndim == 2 and audio_data.shape[1] == 1:
+                        audio_data = audio_data.flatten()
+                    
+                    # Transcribe the audio using Whisper.
+                    result = audio_model.transcribe(audio_data, fp16=("cuda" in device))
+                    text = result['text'].strip()
 
-                if phrase_complete:
-                    transcription.append(f'{text} ')
+                    if phrase_complete:
+                        transcription.append(f'{text} ')
+                    else:
+                        transcription[-1] += f'{text} '
+
+                    # Clear the screen and print the updated transcription.
+                    os.system('cls' if os.name == 'nt' else 'clear')
+                    for line in transcription:
+                        print(line)
                 else:
-                    transcription[-1] += f'{text} '
-
-                os.system('cls' if os.name=='nt' else 'clear')
-                for line in transcription:
-                    print(line)
-                print('', end='', flush=True)
-            else:
-                sleep(0.25)
+                    sleep(0.25)
         except KeyboardInterrupt:
-            break
-        
+            print("Stopping...")
+
 if __name__ == "__main__":
     main()
