@@ -67,10 +67,8 @@ def main():
                         help="Don't use the English model.")
     parser.add_argument("--energy_threshold", default=1000,
                         help="Energy level for mic to detect (in int16 units).", type=int)
-    parser.add_argument("--phrase_timeout", default=30,
-                        help="Timeout (in seconds) between processed chunks to consider it a new phrase.", type=float)
-    parser.add_argument("--silence_timeout", default=0.05,
-                        help="Time (in seconds) of silence (below energy threshold) to trigger processing of the accumulated chunk.", type=float)
+    parser.add_argument("--buffer_duration", default=10,
+                        help="Duration (in seconds) of the rolling audio buffer.", type=float)
     args = parser.parse_args()
 
     # GPU/CPU selection for Whisper
@@ -92,73 +90,56 @@ def main():
 
     # Adjust model name based on language settings.
     model_name = args.model
-    if args.model != "large" and args.model != "turbo" and not args.non_english:
+    if args.model not in ["large", "turbo"] and not args.non_english:
         model_name = model_name + ".en"
     audio_model = whisper.load_model(model_name, device=device)
     print("Model loaded.")
 
-    # Variables for silence-based audio accumulation.
-    audio_buffer = []          # List to accumulate audio chunks.
-    last_active_time = time()  # Time when audio was last above threshold.
-    last_process_time = None   # Time when last chunk was processed.
-    transcription = ['']       # List to hold transcription lines.
+    # Initialize a rolling buffer (for audio at the target sample rate)
+    rolling_audio = np.zeros((0,), dtype=np.float32)
+    # A temporary buffer to store new audio chunks from the callback
+    new_audio_buffer = []
 
-    # The callback simply appends audio chunks when the energy is high.
+    # The callback simply appends all incoming audio.
     def callback(indata, frames, time_info, status):
-        nonlocal last_active_time, audio_buffer
+        nonlocal new_audio_buffer
         if status:
             print(status)
-        # Compute RMS energy of the current block.
-        rms = np.sqrt(np.mean(indata**2))
-        # Convert the int16 threshold to float scale.
-        threshold = args.energy_threshold / 32768.0
-        now = time()
-        # If the energy is high enough, update the last active time and accumulate the chunk.
-        if rms >= threshold:
-            last_active_time = now
-            audio_buffer.append(indata.copy())
+        # Append the incoming audio chunk (regardless of energy)
+        new_audio_buffer.append(indata.copy())
 
     print("Recording... Press Ctrl+C to stop.")
     with sd.InputStream(samplerate=device_fs, device=sd_device, channels=channels,
                         dtype="float32", callback=callback):
         try:
             while True:
-                now = time()
-                # Check if there's accumulated audio and if silence has persisted long enough.
-                if audio_buffer and (now - last_active_time) >= args.silence_timeout:
-                    # Copy and clear the audio buffer.
-                    chunks = audio_buffer.copy()
-                    audio_buffer.clear()
-
-                    # Concatenate all chunks into one audio array.
-                    audio_data = np.concatenate(chunks, axis=0)
-                    # If necessary, flatten the audio array.
-                    if audio_data.ndim == 2 and audio_data.shape[1] == 1:
-                        audio_data = audio_data.flatten()
+                if new_audio_buffer:
+                    # Concatenate the new chunks
+                    chunks = new_audio_buffer.copy()
+                    new_audio_buffer.clear()
+                    audio_chunk = np.concatenate(chunks, axis=0)
+                    # If the audio has a shape (N, 1), flatten it.
+                    if audio_chunk.ndim == 2 and audio_chunk.shape[1] == 1:
+                        audio_chunk = audio_chunk.flatten()
                     
-                    # Resample the audio to 16 kHz if needed.
+                    # Resample the chunk to 16 kHz if needed.
                     if device_fs != target_fs:
-                        audio_data = scipy.signal.resample_poly(audio_data, target_fs, device_fs)
+                        audio_chunk = scipy.signal.resample_poly(audio_chunk, target_fs, device_fs)
                     
-                    # Ensure the audio data is in float32 format.
-                    audio_data = audio_data.astype(np.float32)
+                    # Append the new chunk to the rolling buffer.
+                    rolling_audio = np.concatenate([rolling_audio, audio_chunk])
+                    # Trim the rolling buffer to keep only the last buffer_duration seconds.
+                    max_samples = int(args.buffer_duration * target_fs)
+                    if rolling_audio.shape[0] > max_samples:
+                        rolling_audio = rolling_audio[-max_samples:]
                     
-                    # Transcribe the accumulated audio chunk using Whisper.
-                    result = audio_model.transcribe(audio_data, fp16=("cuda" in device))
+                    # Transcribe the current rolling buffer.
+                    result = audio_model.transcribe(rolling_audio, fp16=("cuda" in device))
                     text = result['text'].strip()
                     
-                    # Determine if we should start a new phrase or append to the current one.
-                    if (last_process_time is None) or ((now - last_process_time) > args.phrase_timeout):
-                        transcription.append(text + " ")
-                    else:
-                        transcription[-1] += text + " "
-                    
-                    last_process_time = now
-                    
-                    # Clear the screen and print the updated transcription.
+                    # Clear the screen and print the rolling transcription.
                     os.system("cls" if os.name == "nt" else "clear")
-                    for line in transcription:
-                        print(line)
+                    print(text)
                 
                 sleep(0.1)
         except KeyboardInterrupt:
