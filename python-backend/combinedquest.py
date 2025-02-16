@@ -134,22 +134,22 @@ def combined_processing_loop(stop_event, args, device, audio_model, device_fs, t
                     print("[COMBINED] Transcription error:", e)
                     latest_transcription_local = ""
                 
-                # # Classification: use the last num_class_samples if available
-                # if current_buffer.shape[0] >= num_class_samples:
-                #     classification_chunk = current_buffer[-num_class_samples:]
-                #     waveform = tf.convert_to_tensor(classification_chunk, dtype=tf.float32)
-                #     scores, embeddings, spectrogram = yamnet_model(waveform)
-                #     mean_scores = np.mean(scores.numpy(), axis=0)
-                #     top_index = np.argsort(mean_scores)[-1]
-                #     top_score = mean_scores[top_index]
-                #     angle_info = current_angle if 'current_angle' in globals() and current_angle is not None else "N/A"
+                # Classification: use the last num_class_samples if available
+                if current_buffer.shape[0] >= num_class_samples:
+                    classification_chunk = current_buffer[-num_class_samples:]
+                    waveform = tf.convert_to_tensor(classification_chunk, dtype=tf.float32)
+                    scores, embeddings, spectrogram = yamnet_model(waveform)
+                    mean_scores = np.mean(scores.numpy(), axis=0)
+                    top_index = np.argsort(mean_scores)[-1]
+                    top_score = mean_scores[top_index]
+                    angle_info = current_angle if 'current_angle' in globals() and current_angle is not None else "N/A"
                     
-                #     combined_message = (f"Direction: {angle_info} | "
-                #                         f"Prediction: {class_names[top_index]}: {top_score:.3f} | "
-                #                         f"Transcript: {latest_transcription_local}")
-                #     print("[COMBINED] Final Message:", combined_message)
-                #     # Central thread sends out the message (e.g., via TCP)
-                #     send_message(args.metaquest_host, args.metaquest_port, combined_message)
+                    combined_message = (f"Direction: {angle_info} | "
+                                        f"Prediction: {class_names[top_index]}: {top_score:.3f} | "
+                                        f"Transcript: {latest_transcription_local}")
+                    print("[COMBINED] Final Message:", combined_message)
+                    # Central thread sends out the message (e.g., via TCP)
+                    send_message(args.metaquest_host, args.metaquest_port, combined_message)
     except Exception as e:
         print("[COMBINED] Error in combined processing loop:", e)
     print("[COMBINED] Combined processing loop stopped.")
