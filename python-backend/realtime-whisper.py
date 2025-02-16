@@ -141,7 +141,7 @@ def main():
                     os.system("cls" if os.name == "nt" else "clear")
                     print(text)
                 
-                sleep(0.1)
+                sleep(0.01)
         except KeyboardInterrupt:
             print("Stopping...")
 
