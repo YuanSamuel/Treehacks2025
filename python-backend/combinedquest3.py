@@ -92,6 +92,7 @@ def transcription_thread(stop_event, audio_model, device, sock, sock_lock, audio
             try:
                 transcribe_result = audio_model.transcribe(buffer_copy, fp16=("cuda" in device))
                 transcript_text = transcribe_result['text'].strip()
+                print("[TRANSCRIPTION]", transcript_text)
                 # Send transcript message.
                 send_message(sock, sock_lock, {"type": "transcript", "payload": transcript_text})
             except Exception as e:
