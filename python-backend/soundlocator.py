@@ -2,8 +2,11 @@ import sounddevice as sd
 import numpy as np
 import threading
 import time
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
+print(matplotlib.get_backend())
 stop_event = threading.Event()
 
 def softmax(x, temperature=1.0):
@@ -23,7 +26,7 @@ def audio_callback(indata, frames, time_info, status, mic_index, shared_amplitud
     amplitude = np.sqrt(np.mean(indata**2))
     shared_amplitudes[mic_index] = amplitude
 
-def record_microphone(mic_index, device_index, shared_amplitudes, samplerate=44100):
+def record_microphone(mic_index, device_index, shared_amplitudes, samplerate=48000):
     """
     Opens an InputStream for the specified device_index, using a callback
     that updates the global shared_amplitudes for mic_index.
@@ -180,7 +183,7 @@ def main():
             # Avoid division by zero
             if np.sum(momentum_amplitudes) > 0:
                 # For sharper distinctions, we can pass a small temperature
-                softmax_values = softmax(momentum_amplitudes, temperature=0.05)
+                softmax_values = softmax(momentum_amplitudes, temperature=0.1)
             else:
                 softmax_values = [0.0] * n_mics
 

@@ -64,13 +64,12 @@ def classification_worker():
             # Average scores across time frames
             mean_scores = np.mean(scores_np, axis=0)
 
-            # Pick top 3
-            top3_i = np.argsort(mean_scores)[-3:][::-1]
+            # Pick top 1
+            top_pred = np.argsort(mean_scores)[-1:][::-1]
 
             # Print results
-            print("Top predictions:")
-            for i in top3_i:
-                print(f"  {class_names[i]} (confidence: {mean_scores[i]:.2f})")
+            print("Top prediction:")
+            print(f"  {class_names[i]} (confidence: {mean_scores[i]:.2f})")
             print("-" * 50)
 
 # -----------------------------------------------------

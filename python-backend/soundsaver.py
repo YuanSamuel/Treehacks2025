@@ -3,7 +3,7 @@ import numpy as np
 import time
 import scipy.io.wavfile as wav
 
-def record_microphones(device_indices, mic_names, duration=10, samplerate=44100):
+def record_microphones(device_indices, mic_names, duration=10, samplerate=16000):
     """
     Records audio from multiple microphones simultaneously for a fixed duration
     and saves each recording as a separate WAV file.
