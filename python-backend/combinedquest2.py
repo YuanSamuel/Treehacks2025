@@ -59,6 +59,7 @@ def audio_callback(indata, frames, time_info, status, rolling_audio, lock):
     if status:
         print("[AUDIO] Status:", status)
     new_data = indata.flatten() if indata.ndim == 2 else indata
+    print("Audio callback happened")
     with lock:
         rolling_audio = np.concatenate([rolling_audio, new_data])
         max_samples = int(10.0 * 16000)
@@ -68,6 +69,7 @@ def audio_callback(indata, frames, time_info, status, rolling_audio, lock):
 def transcription_thread(stop_event, audio_model, device, host, port, rolling_audio, lock):
     print("[TRANSCRIPTION] Thread started.")
     while not stop_event.is_set():
+        print("Inside stop event")
         with lock:
             if rolling_audio.shape[0] == 0:
                 continue
@@ -84,6 +86,11 @@ def transcription_thread(stop_event, audio_model, device, host, port, rolling_au
 def classification_thread(stop_event, yamnet_model, class_names, host, port, rolling_audio, lock):
     target_fs = 16000
     num_class_samples = int(1.0 * target_fs)
+    dev = usb.core.find(idVendor=0x2886, idProduct=0x0018)
+    if not dev:
+        print("[ANGLE] USB device not found!")
+        return
+    mic_tuning = Tuning(dev)
     print("[CLASSIFICATION] Thread started.")
     while not stop_event.is_set():
         with lock:
@@ -97,7 +104,11 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, rol
         top_score = mean_scores[top_index]
         classification = f"{class_names[top_index]}: {top_score:.3f}"
         print("[CLASSIFICATION]", classification)
-        send_message(host, port, f"Class: {classification} | Angle: N/A | Volume: {np.max(buffer_copy):.3f}")
+        try:
+            direction = mic_tuning.direction
+        except Exception as e:
+            print(f"[ANGLE] Error: {e}")
+        send_message(host, port, f"Class: {classification} | Angle: {direction} | Volume: {np.max(buffer_copy):.3f}")
         time.sleep(1)
 
 def send_message(host, port, message):
