@@ -87,8 +87,8 @@ def sound_classification_thread(stop_event, device_id, metaquest_host, metaquest
     num_samples = int(sample_rate * duration)
 
     print("[PREDICTION] Loading YAMNet model...")
-    yamnet_model = hub.load('../yamnet_local')
-    class_map_path = "../yamnet_local/yamnet_class_map.csv"
+    yamnet_model = hub.load('yamnet_local')
+    class_map_path = "yamnet_local/yamnet_class_map.csv"
     class_names = load_class_names(class_map_path)
     
     print(f"[PREDICTION] Starting audio stream on device {device_id} (sample rate {sample_rate} Hz)...")
@@ -111,7 +111,9 @@ def sound_classification_thread(stop_event, device_id, metaquest_host, metaquest
                 waveform = tf.convert_to_tensor(mono_audio)
                 
                 # Run inference with YAMNet.
-                scores, embeddings, spectrogram = yamnet_model(waveform)
+                waveform = tf.convert_to_tensor(mono_audio)
+                with tf.device('/GPU:0'):
+                    scores, embeddings, spectrogram = yamnet_model(waveform)
                 mean_scores = np.mean(scores, axis=0)
                 top_index = np.argsort(mean_scores)[-1]
                 top_score = mean_scores[top_index]
