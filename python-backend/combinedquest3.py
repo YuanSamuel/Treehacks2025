@@ -196,7 +196,7 @@ def send_message(host: str, port: int, message: dict):
             print(f"[SEND] Sending message: {encoded_message}")
             sock.sendall(encoded_message.encode('utf-8'))
     except Exception as e:
-        print("[SEND] Error sending message:", e)
+        print("[SEND] Error sending message: ", e, message)
 
 def main():
     parser = argparse.ArgumentParser()
