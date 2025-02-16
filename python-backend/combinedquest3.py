@@ -65,7 +65,7 @@ def audio_callback(indata, frames, time_info, status, audio_buffer, lock):
     with lock:
         # Update the shared buffer in place
         audio_buffer["data"] = np.concatenate([audio_buffer["data"], new_data])
-        max_samples = int(10.0 * 16000)
+        max_samples = int(5.0 * 16000)
         if audio_buffer["data"].shape[0] > max_samples:
             audio_buffer["data"] = audio_buffer["data"][-max_samples:]
 
@@ -88,7 +88,7 @@ def transcription_thread(stop_event, audio_model, device, host, port, audio_buff
                 print("[TRANSCRIPTION] Error:", e)
             # Remove buffer_copy so we don't reuse stale data accidentally.
             del buffer_copy
-        time.sleep(1)
+        time.sleep(0.01)
 
 def classification_thread(stop_event, yamnet_model, class_names, host, port, audio_buffer, lock):
     target_fs = 16000
@@ -136,6 +136,7 @@ def main():
     parser.add_argument("--model", default="tiny", choices=["tiny", "base", "small", "medium", "large", "turbo"])
     parser.add_argument("--metaquest_host", type=str, default="127.0.0.1")
     parser.add_argument("--metaquest_port", type=int, default=7000)
+    parser.add_argument("--non_english", action='store_true', help="Do not use English-specific Whisper model")
     parser.add_argument("--trans_input_device", type=int, default=None)
     parser.add_argument("--yamnet_csv", type=str, default="./yamnet_local/yamnet_class_map.csv")
     args = parser.parse_args()
@@ -151,7 +152,12 @@ def main():
     lock = threading.Lock()
     
     print("[MAIN] Loading models...")
-    audio_model = whisper.load_model(args.model, device=device)
+
+    model_name = args.model
+    if args.model not in ["large", "turbo"] and not args.non_english:
+        model_name = model_name + ".en"
+    audio_model = whisper.load_model(model_name, device=device)
+
     yamnet_model = hub.load("./yamnet_local")
     with open(args.yamnet_csv, 'r') as f:
         class_names = [row[2] for row in csv.reader(f)][1:]
