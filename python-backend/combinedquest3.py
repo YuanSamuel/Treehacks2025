@@ -12,6 +12,7 @@ import time
 import torch
 import usb.core
 from tuning import Tuning
+from scipy.signal import resample_poly  # <-- New import for resampling
 
 last_class_time = {}
 THROTTLE = 2
@@ -67,15 +68,23 @@ def select_input_device(purpose="transcription"):
         except ValueError:
             print("Invalid input. Please enter a number.")
 
-# Wrap the audio buffer in a dictionary so updates are seen by all threads.
-def audio_callback(indata, frames, time_info, status, audio_buffer, lock):
+# Modified audio_callback to resample if needed.
+def audio_callback(indata, frames, time_info, status, audio_buffer, lock, source_rate):
     if status:
         print("[AUDIO] Status:", status)
     new_data = indata.flatten() if indata.ndim == 2 else indata
+
+    # Convert the source_rate to an integer.
+    source_rate = int(round(source_rate))
+    # If the source sample rate is not 16,000 Hz, resample to 16,000 Hz.
+    target_rate = 16000
+    if source_rate != target_rate:
+        new_data = resample_poly(new_data, up=target_rate, down=source_rate)
+
     with lock:
         # Append new data to the shared buffer.
         audio_buffer["data"] = np.concatenate([audio_buffer["data"], new_data])
-        max_samples = int(5.0 * 16000)
+        max_samples = int(5.0 * target_rate)
         if audio_buffer["data"].shape[0] > max_samples:
             # Instead of keeping the latest samples, clear the buffer to start fresh.
             audio_buffer["data"] = np.empty((0,), dtype=np.float32)
@@ -203,6 +212,13 @@ def main():
     if args.class_input_device is None:
         args.class_input_device = select_input_device("classification")
     
+    # Query default sample rates for the selected devices.
+    trans_dev_info = sd.query_devices(args.trans_input_device, 'input')
+    trans_rate = trans_dev_info['default_samplerate']
+    class_dev_info = sd.query_devices(args.class_input_device, 'input')
+    class_rate = class_dev_info['default_samplerate']
+    
+    # The target sample rate for processing is 16,000 Hz.
     device_fs = 16000
     # Create separate audio buffers and locks for transcription and classification.
     transcription_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
@@ -235,17 +251,19 @@ def main():
     
     print("[MAIN] Starting audio input streams...")
     with sd.InputStream(
-        samplerate=device_fs,
+        samplerate=trans_rate,  # Use the device's default sample rate.
         device=args.trans_input_device,
         channels=1,
         dtype="float32",
-        callback=lambda indata, frames, time_info, status: audio_callback(indata, frames, time_info, status, transcription_audio_buffer, transcription_lock)
+        callback=lambda indata, frames, time_info, status: audio_callback(
+            indata, frames, time_info, status, transcription_audio_buffer, transcription_lock, trans_rate)
     ) as trans_stream, sd.InputStream(
-        samplerate=device_fs,
+        samplerate=class_rate,  # Use the device's default sample rate.
         device=args.class_input_device,
         channels=1,
         dtype="float32",
-        callback=lambda indata, frames, time_info, status: audio_callback(indata, frames, time_info, status, classification_audio_buffer, classification_lock)
+        callback=lambda indata, frames, time_info, status: audio_callback(
+            indata, frames, time_info, status, classification_audio_buffer, classification_lock, class_rate)
     ) as class_stream:
         t1 = threading.Thread(target=transcription_thread, args=(
             stop_event, audio_model, device, persistent_sock, persistent_sock_lock,
