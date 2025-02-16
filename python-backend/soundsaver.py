@@ -1,6 +1,7 @@
 import sounddevice as sd
 import numpy as np
 import time
+import scipy.io.wavfile as wav
 
 def record_microphones(device_indices, mic_names, duration=10, samplerate=16000):
     """
@@ -27,7 +28,7 @@ def record_microphones(device_indices, mic_names, duration=10, samplerate=16000)
         for i in range(n_mics):
             stream = sd.InputStream(
                 device=device_indices[i],
-                channels=1,
+                channels=6,
                 samplerate=samplerate,
                 callback=lambda indata, frames, time_info, status, i=i: 
                     callback(indata, frames, time_info, status, i, mic_names[i])
