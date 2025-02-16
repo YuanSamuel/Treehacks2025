@@ -130,7 +130,15 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
                 print(f"[ANGLE] Error: {e}")
                 direction = "Unknown"
 
-            send_message(host, port, {"type": "classification", "payload": {"angle": direction, "volume": np.max(buffer_copy):.3f, "class_name": classification}})
+            send_message(host, port, {
+                "type": "classification",
+                "payload": {
+                    "angle": direction,
+                    "volume": f"{np.max(buffer_copy):.3f}",  
+                    "class_name": classification
+                }
+            })
+
         time.sleep(1)
 
 def send_message(host: str, port: int, message: dict):
