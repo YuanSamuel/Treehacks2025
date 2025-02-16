@@ -47,7 +47,7 @@ def main():
         # Optionally wait before sending another message
         time.sleep(1)
 
-async def proxy_message(websocket, path):
+async def proxy_message(websocket, path = None):
     """
     Handler for incoming WebSocket messages.
     For each message received, call the send_message function to
