@@ -128,6 +128,8 @@ def classification_thread(stop_event, yamnet_model, class_names, sock, sock_lock
             except Exception as e:
                 print(f"[ANGLE] Error: {e}")
                 direction = "Unknown"
+            
+            direction = (direction + 90) % 360
                 
             # Compute volume as dB using the RMS of the waveform.
             rms_value = np.sqrt(np.mean(np.square(buffer_copy)))
