@@ -143,7 +143,7 @@ def main():
         ws = None
 
     # Prompt for confirmation if WebSocket connection is established.
-    confirm = input(f"WebSocket connection {"was not" if ws is None else "was"} established. Continue? (y/n): ").strip().lower()
+    confirm = input(f"WebSocket connection {'was not' if ws is None else 'was'} established. Continue? (y/n): ").strip().lower()
     if confirm not in ("y", "yes"):
         print("WebSocket connection will not be used.")
         ws.close()
