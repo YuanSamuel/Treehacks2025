@@ -92,7 +92,7 @@ def main():
 
     # Adjust model name based on language settings.
     model_name = args.model
-    if args.model != "large" and not args.non_english:
+    if (args.model != "large" or args.model != "turbo") and not args.non_english:
         model_name = model_name + ".en"
     audio_model = whisper.load_model(model_name, device=device)
     print("Model loaded.")
