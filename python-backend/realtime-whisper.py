@@ -65,11 +65,11 @@ def main():
                         choices=["tiny", "base", "small", "medium", "large", "turbo"])
     parser.add_argument("--non_english", action='store_true',
                         help="Don't use the English model.")
-    parser.add_argument("--energy_threshold", default=700,
+    parser.add_argument("--energy_threshold", default=1000,
                         help="Energy level for mic to detect (in int16 units).", type=int)
-    parser.add_argument("--phrase_timeout", default=3,
+    parser.add_argument("--phrase_timeout", default=30,
                         help="Timeout (in seconds) between processed chunks to consider it a new phrase.", type=float)
-    parser.add_argument("--silence_timeout", default=0.1,
+    parser.add_argument("--silence_timeout", default=0.05,
                         help="Time (in seconds) of silence (below energy threshold) to trigger processing of the accumulated chunk.", type=float)
     args = parser.parse_args()
 
