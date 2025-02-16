@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import threading
 import time
 import csv
@@ -7,7 +8,13 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import usb.core
 import usb.util
+import math
+import socket
+import argparse
 from tuning import Tuning
+
+# Global variable to hold the current angle from the angle_thread.
+current_angle = None
 
 def load_class_names(csv_path):
     """
@@ -27,8 +34,9 @@ def load_class_names(csv_path):
 
 def angle_thread(stop_event):
     """
-    Continuously prints the angle (direction) of the sound and the speech detection status.
+    Continuously update the sound direction (angle) and speech detection status.
     """
+    global current_angle
     dev = usb.core.find(idVendor=0x2886, idProduct=0x0018)
     if not dev:
         print("[ANGLE] USB device not found!")
@@ -39,19 +47,38 @@ def angle_thread(stop_event):
         while not stop_event.is_set():
             direction = mic_tuning.direction
             speech_detected = mic_tuning.read('SPEECHDETECTED')
+            current_angle = direction
             print(f"[ANGLE] Direction: {direction} | SpeechDetected: {speech_detected}")
             time.sleep(1)
     except Exception as e:
         print(f"[ANGLE] Error: {e}")
 
-def sound_classification_thread(stop_event, device_id):
+def send_message(host: str, port: int, message: str):
     """
-    Continuously records audio from the specified device, processes it using the local YAMNet model,
-    and prints the top predictions.
+    Connect to the specified host and port, send a message,
+    and print any response from the server.
     """
-    # YAMNet expects 16 kHz mono audio.
-    sample_rate = 16000
-    duration = 1.0  # seconds of audio per inference
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            print(f"[QuestUDP] Connecting to {host}:{port}...")
+            sock.connect((host, port))
+            print("[QuestUDP] Connected.")
+            print(f"[QuestUDP] Sending message: {message}")
+            sock.sendall(message.encode('utf-8'))
+    except ConnectionRefusedError:
+        print("[QuestUDP] Connection refused. Is the Unity server running on the Quest?")
+    except socket.timeout:
+        print("[QuestUDP] Connection timed out.")
+    except Exception as e:
+        print("[QuestUDP] An error occurred:", e)
+
+def sound_classification_thread(stop_event, device_id, metaquest_host, metaquest_port):
+    """
+    Continuously record audio, compute its RMS (volume), run inference with YAMNet,
+    and send the direction, magnitude, and top prediction to MetaQuest via UDP.
+    """
+    sample_rate = 16000  # YAMNet expects 16 kHz mono audio.
+    duration = 1.0       # seconds per inference
     num_samples = int(sample_rate * duration)
 
     print("[PREDICTION] Loading YAMNet model...")
@@ -68,40 +95,71 @@ def sound_classification_thread(stop_event, device_id):
                 if overflowed:
                     print("[PREDICTION] Warning: Audio buffer has overflowed!")
                 
-                # Select channel 0 (adjust if needed) and ensure float32 type.
-                mono_audio = audio_data[:, 0].astype(np.float32)
+                # Select channel 0 (you could also add logic to choose the highest volume channel)
+                channel_index = 0
+                mono_audio = audio_data[:, channel_index].astype(np.float32)
+                
+                # Compute RMS (volume) and convert to dB.
+                rms_value = np.sqrt(np.mean(mono_audio**2))
+                volume_db = 20 * math.log10(rms_value + 1e-9)
+                
                 waveform = tf.convert_to_tensor(mono_audio)
                 
                 # Run inference with YAMNet.
                 scores, embeddings, spectrogram = yamnet_model(waveform)
                 mean_scores = np.mean(scores, axis=0)
-                top_indices = np.argsort(mean_scores)[-2:][::-1]
+                top_index = np.argsort(mean_scores)[-1]
+                top_score = mean_scores[top_index]
                 
-                print("\n[PREDICTION] Top predictions:")
-                for i in top_indices:
-                    print(f"  {class_names[i]}: {mean_scores[i]:.3f}")
+                angle_info = current_angle if current_angle is not None else "N/A"
+                
+                # Build the message with direction, magnitude, and prediction.
+                message = (f"Direction: {angle_info} | Magnitude: {volume_db:.2f} dB | "
+                           f"Prediction: {class_names[top_index]}: {top_score:.3f}")
+                
+                print("[PREDICTION]", message)
+                
+                # Send the message to MetaQuest via UDP.
+                send_message(metaquest_host, metaquest_port, message)
     except Exception as e:
         print(f"[PREDICTION] Error: {e}")
 
 def main():
-    # Ask the user for the audio device ID.
+    # List available sound devices.
+    print("Available sound devices:")
     try:
-        device_id = int(input("Enter the sound device ID: "))
-    except ValueError:
-        print("Invalid device ID. Exiting.")
-        return
+        devices = sd.query_devices()
+        for i, dev in enumerate(devices):
+            print(f"{i}: {dev['name']}")
+    except Exception as e:
+        print("Error querying devices:", e)
     
+    # Parse command-line arguments.
+    parser = argparse.ArgumentParser(description="Sound detection and UDP messaging to MetaQuest.")
+    parser.add_argument('--device', type=int, default=None, help="Sound device ID to use for recording.")
+    parser.add_argument('--metaquest-host', type=str, default="127.0.0.1", help="MetaQuest host IP address.")
+    parser.add_argument('--metaquest-port', type=int, default=7000, help="MetaQuest port number.")
+    args = parser.parse_args()
+    
+    if args.device is None:
+        try:
+            args.device = int(input("Enter the sound device ID: "))
+        except ValueError:
+            print("Invalid device ID. Exiting.")
+            return
+
     stop_event = threading.Event()
     
-    # Create and start both threads.
+    # Start the angle detection and sound classification threads.
     angle_thread_obj = threading.Thread(target=angle_thread, args=(stop_event,))
-    prediction_thread_obj = threading.Thread(target=sound_classification_thread, args=(stop_event, device_id))
+    prediction_thread_obj = threading.Thread(target=sound_classification_thread,
+                                             args=(stop_event, args.device, args.metaquest_host, args.metaquest_port))
     
     angle_thread_obj.start()
     prediction_thread_obj.start()
     
     try:
-        # Main thread idles until a KeyboardInterrupt (Ctrl+C) is detected.
+        # Main thread idles until interrupted.
         while True:
             time.sleep(0.1)
     except KeyboardInterrupt:
