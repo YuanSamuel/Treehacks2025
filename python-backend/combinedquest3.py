@@ -132,7 +132,8 @@ def classification_thread(stop_event, yamnet_model, class_names, sock, sock_lock
             # Compute volume as dB using the RMS of the waveform.
             rms_value = np.sqrt(np.mean(np.square(buffer_copy)))
             volume_db = 20 * math.log10(rms_value + 1e-9)  # add epsilon to avoid log(0)
-            
+
+            print("[CLASSIFICATION]", direction, f"{volume_db:.3f}", classification)
             # Send the message with proper payload (direction, volume in dB, classification).
             send_message(sock, sock_lock, {
                 "type": "classification",
