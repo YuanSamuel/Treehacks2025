@@ -107,13 +107,15 @@ def combined_processing_loop(stop_event, args, device, audio_model, device_fs, t
         # Append new samples (flatten if needed)
         new_data = indata.flatten() if indata.ndim == 2 else indata
         rolling_audio = np.concatenate([rolling_audio, new_data])
-    
+    iterations = 0
+    last_prediction = "No prediction: 0"
     print("[COMBINED] Starting combined processing. Press Ctrl+C to stop.")
     try:
         with sd.InputStream(samplerate=device_fs, device=args.trans_input_device,
                             channels=1, dtype="float32", callback=callback):
             while not stop_event.is_set():
-                sleep(0.05)  # Allow some audio to accumulate
+                iterations += 1
+                sleep(0.01)  # Allow some audio to accumulate
                 current_buffer = rolling_audio.copy()
                 # Trim buffer to last 'buffer_duration' seconds if needed
                 max_total_samples = int(args.buffer_duration * target_fs)
@@ -135,17 +137,18 @@ def combined_processing_loop(stop_event, args, device, audio_model, device_fs, t
                     latest_transcription_local = ""
                 
                 # Classification: use the last num_class_samples if available
-                if current_buffer.shape[0] >= num_class_samples:
+                if current_buffer.shape[0] >= num_class_samples and iterations % 20 == 0:
                     classification_chunk = current_buffer[-num_class_samples:]
                     waveform = tf.convert_to_tensor(classification_chunk, dtype=tf.float32)
                     scores, embeddings, spectrogram = yamnet_model(waveform)
                     mean_scores = np.mean(scores.numpy(), axis=0)
                     top_index = np.argsort(mean_scores)[-1]
                     top_score = mean_scores[top_index]
+                    last_prediction = f"{class_names[top_index]}: {top_score:.3f}"
                     angle_info = current_angle if 'current_angle' in globals() and current_angle is not None else "N/A"
                     
                     combined_message = (f"Direction: {angle_info} | "
-                                        f"Prediction: {class_names[top_index]}: {top_score:.3f} | "
+                                        f"Prediction: {last_prediction} "
                                         f"Transcript: {latest_transcription_local}")
                     print("[COMBINED] Final Message:", combined_message)
                     # Central thread sends out the message (e.g., via TCP)
@@ -167,6 +170,11 @@ def angle_thread(stop_event):
     mic_tuning = Tuning(dev)
     print("[ANGLE] Starting angle detection thread.")
     try:
+        with sd.InputStream(samplerate=device_fs, device=args.trans_input_device,
+                            channels=1, dtype="float32", callback=callback):
+            while True:
+                print("Is this allowed")
+                sleep(0.1)
         while not stop_event.is_set():
             direction = mic_tuning.direction
             speech_detected = mic_tuning.read('SPEECHDETECTED')
