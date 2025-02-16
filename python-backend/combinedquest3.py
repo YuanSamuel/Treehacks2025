@@ -124,21 +124,21 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
             top_score = mean_scores[top_index]
             classification = f"{class_names[top_index]}: {top_score:.3f}"
             print("[CLASSIFICATION]", classification)
-            
-            send_message(host, port, {
-                "type": "classification",
-                "payload": {
-                    "angle": 123,
-                    "volume": f"{np.max(buffer_copy):.3f}",  
-                    "class_name": classification
-                }
-            })
 
             try:
                 direction = mic_tuning.direction
             except Exception as e:
                 print(f"[ANGLE] Error: {e}")
                 direction = "Unknown"
+
+            send_message(host, port, {
+                "type": "classification",
+                "payload": {
+                    "angle": direction,
+                    "volume": f"{np.max(buffer_copy):.3f}",  
+                    "class_name": classification
+                }
+            })
 
         time.sleep(1)
 
@@ -172,6 +172,7 @@ def send_message(host: str, port: int, message: dict):
 
             # If no approved keyword is found, skip the message.
             if not final_class:
+                print(f"seeing class: [{class_lower}], can't classify")
                 return
 
             # Get the current time
