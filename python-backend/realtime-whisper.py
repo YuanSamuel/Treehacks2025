@@ -65,7 +65,7 @@ def main():
                         choices=["tiny", "base", "small", "medium", "large", "turbo"])
     parser.add_argument("--non_english", action='store_true',
                         help="Don't use the English model.")
-    parser.add_argument("--energy_threshold", default=1000,
+    parser.add_argument("--energy_threshold", default=500,
                         help="Energy level for mic to detect (in int16 units).", type=int)
     parser.add_argument("--buffer_duration", default=10,
                         help="Duration (in seconds) of the rolling audio buffer.", type=float)
