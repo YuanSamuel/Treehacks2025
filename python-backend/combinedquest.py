@@ -19,12 +19,6 @@ import usb.util
 from tuning import Tuning  # Assumes you have this module
 
 # ----------------------
-# Global variables for shared audio and transcription
-# ----------------------
-rolling_audio = np.zeros((0,), dtype=np.float32)
-latest_transcription = ""  # Updated only in the central (combined) loop
-
-# ----------------------
 # Utility functions for device selection
 # ----------------------
 def list_devices():
@@ -98,12 +92,16 @@ def select_input_device():
 # Combined processing: transcription and classification using a single input stream
 # ----------------------
 def combined_processing_loop(stop_event, args, device, audio_model, device_fs, target_fs, yamnet_model, class_names):
+    # Local variables for rolling audio and latest transcription
+    rolling_audio = np.zeros((0,), dtype=np.float32)
+    latest_transcription_local = ""
+    
     # Classification uses the last 1 second of audio
     classification_duration = 1.0  # seconds
     num_class_samples = int(target_fs * classification_duration)
     
     def callback(indata, frames, time_info, status):
-        global rolling_audio
+        nonlocal rolling_audio
         if status:
             print("[COMBINED] Audio stream status:", status)
         # Append new samples (flatten if needed)
