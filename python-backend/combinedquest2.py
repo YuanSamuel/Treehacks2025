@@ -60,10 +60,10 @@ def audio_callback(indata, frames, time_info, status, rolling_audio, lock):
         print("[AUDIO] Status:", status)
     new_data = indata.flatten() if indata.ndim == 2 else indata
     with lock:
-        rolling_audio[:] = np.concatenate([rolling_audio, new_data])
+        rolling_audio = np.concatenate([rolling_audio, new_data])
         max_samples = int(10.0 * 16000)
         if rolling_audio.shape[0] > max_samples:
-            rolling_audio[:] = rolling_audio[-max_samples:]
+            rolling_audio = rolling_audio[-max_samples:]
 
 def transcription_thread(stop_event, audio_model, device, host, port, rolling_audio, lock):
     print("[TRANSCRIPTION] Thread started.")
