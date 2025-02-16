@@ -54,7 +54,7 @@ def select_input_device(purpose="transcription"):
     if not input_indices:
         print("No input devices available. Please check your audio setup.")
         exit(1)
-    print("Available input devices:")
+    print(f"Available input devices [{purpose}]:")
     for i in input_indices:
         print(f"[{i}] {devices[i]['name']}")
     while True:
