@@ -148,7 +148,7 @@ def combined_processing_loop(stop_event, args, device, audio_model, device_fs, t
                     angle_info = current_angle if 'current_angle' in globals() and current_angle is not None else "N/A"
                     
                     combined_message = (f"Direction: {angle_info} | "
-                                        f"Prediction: {last_prediction} "
+                                        f"Prediction: {last_prediction} | "
                                         f"Transcript: {latest_transcription_local}")
                     print("[COMBINED] Final Message:", combined_message)
                     # Central thread sends out the message (e.g., via TCP)
@@ -170,11 +170,6 @@ def angle_thread(stop_event):
     mic_tuning = Tuning(dev)
     print("[ANGLE] Starting angle detection thread.")
     try:
-        with sd.InputStream(samplerate=device_fs, device=args.trans_input_device,
-                            channels=1, dtype="float32", callback=callback):
-            while True:
-                print("Is this allowed")
-                sleep(0.1)
         while not stop_event.is_set():
             direction = mic_tuning.direction
             speech_detected = mic_tuning.read('SPEECHDETECTED')
