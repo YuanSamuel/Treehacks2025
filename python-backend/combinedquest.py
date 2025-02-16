@@ -174,7 +174,7 @@ def angle_thread(stop_event):
             speech_detected = mic_tuning.read('SPEECHDETECTED')
             current_angle = direction
             print(f"[ANGLE] Direction: {direction} | SpeechDetected: {speech_detected}")
-            time.sleep(1)
+            sleep(1)
     except Exception as e:
         print(f"[ANGLE] Error: {e}")
     print("[ANGLE] Angle detection thread stopped.")
@@ -265,7 +265,7 @@ def main():
 
     try:
         while not stop_event.is_set():
-            time.sleep(0.1)
+            sleep(0.1)
     except KeyboardInterrupt:
         print("KeyboardInterrupt detected. Stopping...")
         stop_event.set()
