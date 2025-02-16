@@ -48,7 +48,7 @@ def select_device():
         except ValueError:
             print("Invalid input. Please enter a number.")
 
-def select_input_device():
+def select_input_device(purpose="transcription"):
     devices = sd.query_devices()
     input_indices = [i for i, dev in enumerate(devices) if dev['max_input_channels'] > 0]
     if not input_indices:
@@ -59,7 +59,7 @@ def select_input_device():
         print(f"[{i}] {devices[i]['name']}")
     while True:
         try:
-            choice = int(input("Select the device number to use for transcription: "))
+            choice = int(input(f"Select the device number to use for {purpose}: "))
             if choice in input_indices:
                 return choice
             else:
@@ -85,7 +85,6 @@ def transcription_thread(stop_event, audio_model, device, sock, sock_lock, audio
     while not stop_event.is_set():
         with lock:
             if audio_buffer["data"].shape[0] == 0:
-                # Nothing to transcribe, skip this iteration.
                 buffer_copy = None
             else:
                 buffer_copy = audio_buffer["data"].copy()
@@ -136,8 +135,7 @@ def classification_thread(stop_event, yamnet_model, class_names, sock, sock_lock
 
             # Normalize dB value between 0 and 3.
             # Quiet: -53 dB -> 0, Loud: -8 dB -> 3.
-            normalized_volume = (volume_db + 53) / (45) * 3
-            # Clamp between 0 and 3.
+            normalized_volume = (volume_db + 53) / 45 * 3
             normalized_volume = max(0, min(3, normalized_volume))
 
             print("[CLASSIFICATION]", direction, f"{normalized_volume:.3f}", classification)
@@ -160,30 +158,21 @@ def send_message(sock: socket.socket, sock_lock: threading.Lock, message: dict):
     """
     try:
         if message["type"] == "transcript":
-            # Encode transcript message.
             encoded_message = f"0|{message['payload']}"
         elif message["type"] == "classification":
-            # Extract tuple components: (angle, volume, class_name)
             angle, volume, class_name = message['payload']
             class_lower = class_name.lower()
-
-            # Determine if class_name contains any of the approved keywords.
             final_class = None
             for label, keywords in APPROVED_CATEGORIES.items():
                 if any(keyword in class_lower for keyword in keywords):
                     final_class = label
                     break
-
-            # If no approved keyword is found, skip the message.
             if not final_class:
                 print(f"[SEND] Seeing class: [{class_lower}], can't classify")
                 return
-
-            # Throttle messages per class.
             current_time = time.time()
             if final_class in last_class_time and (current_time - last_class_time[final_class] < THROTTLE):
                 return
-
             print(f"[SEND] Sending classification: [{final_class}]")
             last_class_time[final_class] = current_time
             encoded_message = f"1|{angle}|{volume}|{final_class}"
@@ -192,7 +181,6 @@ def send_message(sock: socket.socket, sock_lock: threading.Lock, message: dict):
             return
 
         with sock_lock:
-            # Send the message using the persistent connection.
             sock.sendall(encoded_message.encode('utf-8'))
     except Exception as e:
         print("[SEND] Error sending message:", e, message)
@@ -203,19 +191,24 @@ def main():
     parser.add_argument("--metaquest_host", type=str, default="127.0.0.1")
     parser.add_argument("--metaquest_port", type=int, default=7000)
     parser.add_argument("--non_english", action='store_true', help="Do not use English-specific Whisper model")
-    parser.add_argument("--trans_input_device", type=int, default=None)
+    parser.add_argument("--trans_input_device", type=int, default=None, help="Input device for transcription")
+    parser.add_argument("--class_input_device", type=int, default=None, help="Input device for classification")
     parser.add_argument("--yamnet_csv", type=str, default="./yamnet_local/yamnet_class_map.csv")
     args = parser.parse_args()
     
     stop_event = threading.Event()
     device = select_device()
     if args.trans_input_device is None:
-        args.trans_input_device = select_input_device()
+        args.trans_input_device = select_input_device("transcription")
+    if args.class_input_device is None:
+        args.class_input_device = select_input_device("classification")
     
     device_fs = 16000
-    # Shared audio buffer and lock.
-    audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
-    lock = threading.Lock()
+    # Create separate audio buffers and locks for transcription and classification.
+    transcription_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
+    classification_audio_buffer = {"data": np.zeros((0,), dtype=np.float32)}
+    transcription_lock = threading.Lock()
+    classification_lock = threading.Lock()
     
     print("[MAIN] Loading models...")
     model_name = args.model
@@ -238,20 +231,30 @@ def main():
         print("[MAIN] Could not establish persistent connection:", e)
         return
 
-    # Create a lock to protect writes on the persistent socket.
     persistent_sock_lock = threading.Lock()
     
-    print("[MAIN] Starting audio input stream...")
-    stream = sd.InputStream(
+    print("[MAIN] Starting audio input streams...")
+    with sd.InputStream(
         samplerate=device_fs,
         device=args.trans_input_device,
         channels=1,
         dtype="float32",
-        callback=lambda indata, frames, time_info, status: audio_callback(indata, frames, time_info, status, audio_buffer, lock)
-    )
-    with stream:
-        t1 = threading.Thread(target=transcription_thread, args=(stop_event, audio_model, device, persistent_sock, persistent_sock_lock, audio_buffer, lock))
-        t2 = threading.Thread(target=classification_thread, args=(stop_event, yamnet_model, class_names, persistent_sock, persistent_sock_lock, audio_buffer, lock))
+        callback=lambda indata, frames, time_info, status: audio_callback(indata, frames, time_info, status, transcription_audio_buffer, transcription_lock)
+    ) as trans_stream, sd.InputStream(
+        samplerate=device_fs,
+        device=args.class_input_device,
+        channels=1,
+        dtype="float32",
+        callback=lambda indata, frames, time_info, status: audio_callback(indata, frames, time_info, status, classification_audio_buffer, classification_lock)
+    ) as class_stream:
+        t1 = threading.Thread(target=transcription_thread, args=(
+            stop_event, audio_model, device, persistent_sock, persistent_sock_lock,
+            transcription_audio_buffer, transcription_lock
+        ))
+        t2 = threading.Thread(target=classification_thread, args=(
+            stop_event, yamnet_model, class_names, persistent_sock, persistent_sock_lock,
+            classification_audio_buffer, classification_lock
+        ))
         t1.start()
         t2.start()
         try:
