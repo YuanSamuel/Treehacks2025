@@ -15,10 +15,10 @@ from tuning import Tuning
 last_class_time = {}
 THROTTLE = 2
 APPROVED_CATEGORIES = {
-    "Yell": ["shout", "whoop", "yell"],
-    "Clapping": ["wood", "chop", "crack", "clapping", "applause", "hands", "door", "bouncing", "hammer"],
-    "Speech": ["speech", "narration", "conversation", "monologue"],
-    "Siren": ["siren", "alarm", "buzzer", "vehicle horn, car horn, honking"]
+    "yell": ["shout", "whoop", "yell"],
+    "clap": ["wood", "chop", "crack", "clapping", "applause", "hands", "door", "bouncing", "hammer"],
+    "speech": ["speech", "narration", "conversation", "monologue"],
+    "siren": ["siren", "alarm", "buzzer", "vehicle horn, car horn, honking"]
 }
 
 def list_devices():
@@ -118,7 +118,6 @@ def classification_thread(stop_event, yamnet_model, class_names, sock, sock_lock
             scores, _, _ = yamnet_model(waveform)
             mean_scores = np.mean(scores.numpy(), axis=0)
             top_index = np.argmax(mean_scores)
-            top_score = mean_scores[top_index]
             classification = f"{class_names[top_index]}"
             print("[CLASSIFICATION]", classification)
 
@@ -127,10 +126,15 @@ def classification_thread(stop_event, yamnet_model, class_names, sock, sock_lock
             except Exception as e:
                 print(f"[ANGLE] Error: {e}")
                 direction = "Unknown"
-
+                
+            # Compute volume as dB using the RMS of the waveform.
+            rms_value = np.sqrt(np.mean(np.square(buffer_copy)))
+            volume_db = 20 * math.log10(rms_value + 1e-9)  # add epsilon to avoid log(0)
+            
+            # Send the message with proper payload (direction, volume in dB, classification).
             send_message(sock, sock_lock, {
                 "type": "classification",
-                "payload": (direction, f"{np.max(buffer_copy):.3f}", classification)
+                "payload": (direction, f"{volume_db:.3f}", classification)
             })
         time.sleep(1)
 
