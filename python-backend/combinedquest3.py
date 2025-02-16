@@ -133,11 +133,7 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
 
             send_message(host, port, {
                 "type": "classification",
-                "payload": {
-                    "angle": direction,
-                    "volume": f"{np.max(buffer_copy):.3f}",  
-                    "class_name": classification
-                }
+                "payload": (123, f"{np.max(buffer_copy):.3f}", classification)
             })
 
         time.sleep(1)
