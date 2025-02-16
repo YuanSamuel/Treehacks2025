@@ -82,7 +82,7 @@ def transcription_thread(stop_event, audio_model, device, host, port, audio_buff
             try:
                 transcribe_result = audio_model.transcribe(buffer_copy, fp16=("cuda" in device))
                 transcript_text = transcribe_result['text'].strip()
-                print("[TRANSCRIPTION]", transcript_text)
+                # print("[TRANSCRIPTION]", transcript_text)
                 send_message(host, port, f"Transcript: {transcript_text}")
             except Exception as e:
                 print("[TRANSCRIPTION] Error:", e)
