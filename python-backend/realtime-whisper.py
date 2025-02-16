@@ -96,12 +96,17 @@ def main():
     audio_model = whisper.load_model(model_name, device=device)
     print("Model loaded.")
 
-    # Connect to the websocket server.
+    # WebSocket setup.
+    use_ws = True
+    ws_url = "ws://localhost:8765"
+    ws = None
+
+    # Try connecting to the WebSocket server initially.
     try:
-        ws = websocket.create_connection("ws://localhost:8765")
-        print("Connected to WebSocket server at ws://localhost:8765")
+        ws = websocket.create_connection(ws_url)
+        print(f"Connected to WebSocket server at {ws_url}")
     except Exception as e:
-        print("Failed to connect to WebSocket server:", e)
+        print("Initial connection to WebSocket server failed:", e)
         ws = None
 
     # Prompt for confirmation if WebSocket connection is established.
@@ -111,6 +116,21 @@ def main():
             print("WebSocket connection will not be used.")
             ws.close()
             ws = None
+            use_ws = False
+
+    # Helper function: try connecting once (non-blocking in main loop).
+    def try_connect_ws(url):
+        try:
+            connection = websocket.create_connection(url)
+            print(f"Connected to WebSocket server at {url}")
+            return connection
+        except Exception as e:
+            print(f"Failed to connect to WebSocket server at {url}: {e}")
+            return None
+
+    # Variables for reconnection timing.
+    last_ws_attempt = 0
+    reconnect_interval = 5  # seconds
 
     # Initialize a rolling buffer (for audio at the target sample rate)
     rolling_audio = np.zeros((0,), dtype=np.float32)
@@ -131,7 +151,7 @@ def main():
                             dtype="float32", callback=callback):
             while True:
                 if new_audio_buffer:
-                    # Concatenate the new chunks
+                    # Concatenate the new chunks.
                     chunks = new_audio_buffer.copy()
                     new_audio_buffer.clear()
                     audio_chunk = np.concatenate(chunks, axis=0)
@@ -158,13 +178,24 @@ def main():
                     os.system("cls" if os.name == "nt" else "clear")
                     print(text)
                     
-                    # Send the transcribed text to the WebSocket server.
-                    if ws is not None:
-                        try:
-                            ws.send(text)
-                        except Exception as e:
-                            print("Failed to send message over WebSocket:", e)
-                
+                    # WebSocket communication.
+                    if use_ws:
+                        # Only try to reconnect if enough time has passed since the last attempt.
+                        if ws is None and (time() - last_ws_attempt) >= reconnect_interval:
+                            print("Attempting to reconnect to WebSocket server...")
+                            ws = try_connect_ws(ws_url)
+                            last_ws_attempt = time()
+                        if ws is not None:
+                            try:
+                                ws.send(text)
+                            except Exception as e:
+                                print("Failed to send message over WebSocket:", e)
+                                try:
+                                    ws.close()
+                                except Exception:
+                                    pass
+                                ws = None
+                                last_ws_attempt = time()  # reset reconnect timer
                 sleep(0.01)
     except KeyboardInterrupt:
         print("Stopping...")
