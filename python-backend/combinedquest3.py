@@ -123,21 +123,22 @@ def classification_thread(stop_event, yamnet_model, class_names, host, port, aud
             top_index = np.argmax(mean_scores)
             top_score = mean_scores[top_index]
             classification = f"{class_names[top_index]}: {top_score:.3f}"
-            # print("[CLASSIFICATION]", classification)
+            print("[CLASSIFICATION]", classification)
+            
             try:
                 direction = mic_tuning.direction
+
+                send_message(host, port, {
+                    "type": "classification",
+                    "payload": {
+                        "angle": direction,
+                        "volume": f"{np.max(buffer_copy):.3f}",  
+                        "class_name": classification
+                    }
+                })
             except Exception as e:
                 print(f"[ANGLE] Error: {e}")
                 direction = "Unknown"
-
-            send_message(host, port, {
-                "type": "classification",
-                "payload": {
-                    "angle": direction,
-                    "volume": f"{np.max(buffer_copy):.3f}",  
-                    "class_name": classification
-                }
-            })
 
         time.sleep(1)
 
